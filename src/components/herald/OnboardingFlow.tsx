@@ -87,15 +87,59 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       account_type: selectedAccountType,
     }).eq('user_id', user.id);
 
-    // Save interests
+    // Save interests and mark onboarding as completed
     await supabase.from('user_interests').upsert({
       user_id: user.id,
       interests: selectedInterests,
       onboarding_completed: true,
+    }, {
+      onConflict: 'user_id'
     });
 
     setIsLoading(false);
     onComplete();
+  };
+
+  const handleSkip = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    
+    try {
+      // Mark onboarding as completed even when skipped
+      // Use upsert to handle both insert and update cases
+      const { error: interestsError } = await supabase
+        .from('user_interests')
+        .upsert({
+          user_id: user.id,
+          interests: selectedInterests.length > 0 ? selectedInterests : [],
+          onboarding_completed: true,
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (interestsError) {
+        console.error('Error saving skipped onboarding:', interestsError);
+        // If table doesn't exist, try creating a record in profiles instead
+        // Some setups might not have user_interests table
+        await supabase.from('profiles').update({
+          onboarding_completed: true,
+        }).eq('user_id', user.id);
+      }
+
+      // Save account type (defaults to 'normal' if not changed)
+      await supabase.from('profiles').update({
+        account_type: selectedAccountType || 'normal',
+      }).eq('user_id', user.id);
+
+      setIsLoading(false);
+      onComplete();
+    } catch (error) {
+      console.error('Error skipping onboarding:', error);
+      setIsLoading(false);
+      // Still complete onboarding even if save fails
+      onComplete();
+    }
   };
 
   const canProceed = step === 1 ? selectedAccountType : step === 2 ? selectedInterests.length >= 1 : true;
@@ -314,7 +358,13 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
             )}
             <Button 
               variant="gold" 
-              onClick={() => step < totalSteps ? setStep(s => s + 1) : handleComplete()}
+              onClick={async () => {
+                if (step < totalSteps) {
+                  setStep(s => s + 1);
+                } else {
+                  await handleComplete();
+                }
+              }}
               disabled={!canProceed || isLoading}
               className="flex-1 gap-2"
             >
@@ -325,10 +375,11 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
           {step < totalSteps && (
             <button 
-              onClick={() => setStep(s => s + 1)}
-              className="w-full text-center text-sm text-muted-foreground hover:text-foreground mt-3 transition-colors"
+              onClick={handleSkip}
+              disabled={isLoading}
+              className="w-full text-center text-sm text-muted-foreground hover:text-foreground mt-3 transition-colors disabled:opacity-50"
             >
-              Skip for now
+              {isLoading ? 'Skipping...' : 'Skip for now'}
             </button>
           )}
         </CardContent>

@@ -28,6 +28,7 @@ import Live from "./pages/Live";
 import Communities from "./pages/Communities";
 import Causes from "./pages/Causes";
 import News from "./pages/News";
+import DbTest from "./pages/DbTest";
 
 const queryClient = new QueryClient();
 
@@ -48,14 +49,25 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkOnboarding = async () => {
       if (user && !loading) {
-        const { data } = await supabase
+        // Check user_interests table first
+        const { data: interestsData } = await supabase
           .from('user_interests')
           .select('onboarding_completed')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (!data || !data.onboarding_completed) {
-          setShowOnboarding(true);
+        // If user_interests doesn't exist or doesn't have onboarding_completed, check profiles
+        if (!interestsData || interestsData.onboarding_completed === null || interestsData.onboarding_completed === false) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          // Show onboarding if not completed in either table
+          if (!profileData?.onboarding_completed && !interestsData?.onboarding_completed) {
+            setShowOnboarding(true);
+          }
         }
         setCheckingOnboarding(false);
       } else if (!loading) {
@@ -147,6 +159,7 @@ const AppRoutes = () => {
       <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
       <Route path="/causes" element={<ProtectedRoute><Causes /></ProtectedRoute>} />
       <Route path="/news" element={<ProtectedRoute><News /></ProtectedRoute>} />
+      <Route path="/db-test" element={<DbTest />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

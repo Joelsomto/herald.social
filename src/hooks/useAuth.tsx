@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string) => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -70,18 +70,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific error cases
+        if (error.code === 'over_email_send_rate_limit') {
+          toast({
+            title: 'Email Rate Limit Exceeded',
+            description: 'Too many signups. Please wait a few minutes or disable email confirmation in Supabase settings.',
+            variant: 'destructive',
+          });
+          throw error;
+        }
+        throw error;
+      }
 
-      toast({
-        title: 'Account created!',
-        description: 'Check your email to confirm your account. Welcome bonus: 100 HTTN Points added.',
-      });
+      // Check if user was created (even if email confirmation is pending)
+      if (data.user) {
+        toast({
+          title: 'Account created!',
+          description: data.user.email_confirmed_at 
+            ? 'Welcome! Your account is ready. Welcome bonus: 100 HTTN Points added.'
+            : 'Check your email to confirm your account. Welcome bonus: 100 HTTN Points added.',
+        });
+      } else {
+        toast({
+          title: 'Sign Up Failed',
+          description: 'Unable to create account. Please try again.',
+          variant: 'destructive',
+        });
+      }
     } catch (error: any) {
-      toast({
-        title: 'Sign Up Failed',
-        description: error?.message || 'Something went wrong. Please try again.',
-        variant: 'destructive',
-      });
+      // Only show generic error if not already handled above
+      if (error?.code !== 'over_email_send_rate_limit') {
+        toast({
+          title: 'Sign Up Failed',
+          description: error?.message || 'Something went wrong. Please try again.',
+          variant: 'destructive',
+        });
+      }
       throw error;
     } finally {
       setLoading(false);

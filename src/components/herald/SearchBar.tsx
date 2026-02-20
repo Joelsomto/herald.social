@@ -60,7 +60,7 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
       const userResults: SearchResult[] = (profilesRes.data || []).map(p => ({
         type: 'user',
         id: p.user_id,
-        title: p.display_name || 'Unknown',
+        title: p.username || 'Unknown', // Use username if display_name doesn't exist
         subtitle: `@${p.username || 'unknown'}`,
         avatar: p.avatar_url,
         isVerified: p.is_verified,

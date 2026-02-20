@@ -133,88 +133,7 @@ export default function Feed() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (user) {
-      fetchUserData();
-      fetchPosts();
-      fetchTopCreators();
-      subscribeToNewPosts();
-    }
-  }, [user]);
-
-  const subscribeToNewPosts = useCallback(() => {
-    const channel = supabase
-      .channel('feed-posts')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts' },
-        (payload) => {
-          const newPost = payload.new;
-          // If it's not the current user's post, show notification
-          if (newPost.author_id !== user?.id) {
-            setNewPostsAvailable(prev => prev + 1);
-          } else {
-            fetchPosts();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // Infinite scroll setup
-  useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          loadMorePosts();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [hasMore, isLoadingMore, posts]);
-
-  const loadMorePosts = async () => {
-    if (isLoadingMore || !hasMore || posts.length === 0) return;
-    
-    setIsLoadingMore(true);
-    const lastPost = posts[posts.length - 1];
-    
-    const { data } = await supabase
-      .from('posts')
-      .select(`
-        *,
-        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
-      `)
-      .lt('created_at', lastPost.created_at)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (data) {
-      if (data.length < 10) setHasMore(false);
-      setPosts(prev => [...prev, ...data.map(p => ({ ...p, author: p.author as unknown as Profile }))]);
-    }
-    setIsLoadingMore(false);
-  };
-
-  const loadNewPosts = async () => {
-    await fetchPosts();
-    setNewPostsAvailable(0);
-  };
-
+  // Define all functions before useEffects that use them
   const fetchUserData = async () => {
     if (!user) return;
 
@@ -230,17 +149,104 @@ export default function Feed() {
   };
 
   const fetchPosts = async () => {
-    const { data } = await supabase
+    console.log('Fetching posts...');
+    // Fetch posts with author profile
+    // Note: posts.author_id references auth.users.id, so we need to join via profiles.user_id
+    const { data: postsData, error: postsError } = await supabase
       .from('posts')
-      .select(`
-        *,
-        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
       .limit(20);
 
-    if (data) {
-      setPosts(data.map(p => ({ ...p, author: p.author as unknown as Profile })));
+    if (postsError) {
+      console.error('Error fetching posts:', postsError);
+      console.error('Error details:', {
+        message: postsError.message,
+        code: postsError.code,
+        hint: postsError.hint,
+        details: postsError.details
+      });
+      
+      // If author_id column doesn't exist, try querying without it
+      if (postsError.code === '42703' || postsError.message.includes('author_id')) {
+        console.warn('author_id column may not exist, trying alternative query...');
+        const { data: altPosts, error: altError } = await supabase
+          .from('posts')
+          .select('id, content, created_at, media_type, media_url, likes_count, comments_count, shares_count')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        
+        if (!altError && altPosts) {
+          console.log(`Found ${altPosts.length} posts (without author_id)`);
+          setPosts(altPosts.map(p => ({
+            id: p.id,
+            content: p.content,
+            created_at: p.created_at,
+            media_type: p.media_type,
+            media_url: p.media_url,
+            likes_count: p.likes_count || 0,
+            comments_count: p.comments_count || 0,
+            shares_count: p.shares_count || 0,
+            httn_earned: 0, // Default value since column might not exist
+            author_id: null as any,
+            author: {
+              display_name: 'Unknown',
+              username: 'unknown',
+              tier: 'participant',
+              reputation: 0,
+              avatar_url: null,
+              is_creator: false,
+              is_verified: false,
+            }
+          })));
+        }
+      }
+      return;
+    }
+
+    console.log(`Fetched ${postsData?.length || 0} posts`);
+
+    if (postsData && postsData.length > 0) {
+      // Get unique author IDs
+      const authorIds = [...new Set(postsData.map(p => p.author_id).filter(Boolean))];
+      console.log('Author IDs to fetch:', authorIds);
+      
+      // Fetch profiles for these authors
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified')
+        .in('user_id', authorIds);
+
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      } else {
+        console.log(`Fetched ${profilesData?.length || 0} profiles`);
+      }
+
+      // Create a map of user_id -> profile
+      const profileMap = new Map(
+        (profilesData || []).map(p => [p.user_id, p])
+      );
+
+      // Combine posts with author profiles
+      const postsWithAuthors = postsData.map(p => ({
+        ...p,
+        author: profileMap.get(p.author_id) as unknown as Profile || {
+          display_name: 'Unknown',
+          username: 'unknown',
+          tier: 'participant',
+          reputation: 0,
+          avatar_url: null,
+          is_creator: false,
+          is_verified: false,
+        }
+      }));
+
+      console.log('Setting posts:', postsWithAuthors.length);
+      setPosts(postsWithAuthors);
+    } else {
+      console.log('No posts found in database, dummy posts will still show');
+      // Don't set posts to empty array - let dummy posts show
     }
   };
 
@@ -252,6 +258,51 @@ export default function Feed() {
       .limit(5);
 
     if (data) setTopCreators(data);
+  };
+
+  const loadMorePosts = async () => {
+    if (isLoadingMore || !hasMore || posts.length === 0) return;
+    
+    setIsLoadingMore(true);
+    const lastPost = posts[posts.length - 1];
+    
+    const { data } = await supabase
+      .from('posts')
+      .select('*')
+      .lt('created_at', lastPost.created_at)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (data && data.length > 0) {
+      // Get author IDs and fetch profiles
+      const authorIds = [...new Set(data.map(p => p.author_id).filter(Boolean))];
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified')
+        .in('user_id', authorIds);
+
+      const profileMap = new Map((profilesData || []).map(p => [p.user_id, p]));
+      
+      if (data.length < 10) setHasMore(false);
+      setPosts(prev => [...prev, ...data.map(p => ({
+        ...p,
+        author: profileMap.get(p.author_id) as unknown as Profile || {
+          display_name: 'Unknown',
+          username: 'unknown',
+          tier: 'participant',
+          reputation: 0,
+          avatar_url: null,
+          is_creator: false,
+          is_verified: false,
+        }
+      }))]);
+    }
+    setIsLoadingMore(false);
+  };
+
+  const loadNewPosts = async () => {
+    await fetchPosts();
+    setNewPostsAvailable(0);
   };
 
   const handleLike = async (postId: string) => {
@@ -368,6 +419,79 @@ export default function Feed() {
     await fetchUserData();
   };
 
+  const subscribeToNewPosts = useCallback(() => {
+    if (!user) return;
+
+    console.log('Subscribing to new posts...');
+    const channel = supabase
+      .channel('feed-posts')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        (payload) => {
+          console.log('New post detected:', payload);
+          const newPost = payload.new;
+          // If it's not the current user's post, show notification
+          if (newPost.author_id !== user?.id) {
+            console.log('New post from another user, showing notification');
+            setNewPostsAvailable(prev => prev + 1);
+          } else {
+            console.log('New post from current user, refreshing feed');
+            fetchPosts();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+      });
+
+    return () => {
+      console.log('Unsubscribing from posts');
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // useEffects after all function definitions
+  useEffect(() => {
+    if (user) {
+      fetchUserData();
+      // Try to fetch posts, but don't let errors break the page
+      fetchPosts().catch(err => {
+        console.warn('Failed to fetch posts, showing dummy posts instead:', err);
+      });
+      fetchTopCreators();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      const unsubscribe = subscribeToNewPosts();
+      return unsubscribe;
+    }
+  }, [user, subscribeToNewPosts]);
+
+  // Infinite scroll setup
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadMorePosts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [hasMore, isLoadingMore, posts]);
+
   const rightSidebar = (
     <RightSidebarWithAds>
       <WalletPreview balance={walletBalance} />
@@ -409,6 +533,9 @@ export default function Feed() {
     </RightSidebarWithAds>
   );
 
+
+  // Debug: Log dummy posts
+  console.log('Feed render - dummyPosts:', dummyPosts.length, 'posts:', posts.length);
 
   return (
     <MainLayout rightSidebar={rightSidebar}>
@@ -482,32 +609,38 @@ export default function Feed() {
 
       {/* Feed */}
       <div>
-        {/* Show dummy posts first, then real posts */}
-        {dummyPosts.map((post, index) => (
-          <div key={post.id}>
-            <TwitterStylePost
-              id={post.id}
-              author={post.author}
-              content={post.content}
-              likes={post.likes}
-              comments={post.comments}
-              reposts={post.reposts}
-              httnEarned={post.httnEarned}
-              createdAt={post.createdAt}
-              onLike={handleLike}
-              onRepost={handleRepost}
-            />
-            {/* Insert ads between posts */}
-            {index === 1 && (
-              <div className="px-4 py-3 border-b border-border">
-                <VerticalAdBanner {...verticalAds[0]} />
-              </div>
-            )}
+        {/* Show dummy posts - always visible for demo */}
+        {dummyPosts && dummyPosts.length > 0 ? (
+          dummyPosts.map((post, index) => (
+            <div key={post.id}>
+              <TwitterStylePost
+                id={post.id}
+                author={post.author}
+                content={post.content}
+                likes={post.likes}
+                comments={post.comments}
+                reposts={post.reposts}
+                httnEarned={post.httnEarned}
+                createdAt={post.createdAt}
+                onLike={handleLike}
+                onRepost={handleRepost}
+              />
+              {/* Insert ads between posts */}
+              {index === 1 && (
+                <div className="px-4 py-3 border-b border-border">
+                  <VerticalAdBanner {...verticalAds[0]} />
+                </div>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="p-8 text-center text-muted-foreground">
+            <p>No posts available</p>
           </div>
-        ))}
+        )}
 
-        {/* Real posts from database */}
-        {posts.map((post, index) => (
+        {/* Real posts from database - shown after dummy posts */}
+        {posts && posts.length > 0 && posts.map((post, index) => (
           <div key={post.id}>
             <TwitterStylePost
               id={post.id}
@@ -539,9 +672,10 @@ export default function Feed() {
           </div>
         ))}
 
-        {posts.length === 0 && (
+        {/* Don't show "No more posts" if dummy posts are visible */}
+        {dummyPosts.length === 0 && posts.length === 0 && (
           <div className="p-8 text-center text-muted-foreground border-b border-border">
-            <p>No more posts. Check back later!</p>
+            <p>No posts available. Check back later!</p>
           </div>
         )}
       </div>

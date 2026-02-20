@@ -1,0 +1,156 @@
+import { User, Post, Task, WalletBalance } from '@/types/herald';
+
+export const currentUser: User = {
+  id: '1',
+  username: 'herald_user',
+  displayName: 'Alex Herald',
+  avatar: '',
+  tier: 'creator',
+  httnPoints: 12450,
+  httnTokens: 245.8,
+  espees: 12.45,
+  reputation: 87,
+  badges: [
+    { id: '1', name: 'Early Adopter', icon: '🌟', rarity: 'rare' },
+    { id: '2', name: 'Content Creator', icon: '✨', rarity: 'epic' },
+  ],
+  joinedAt: new Date('2024-01-15'),
+};
+
+export const mockUsers: User[] = [
+  {
+    id: '2',
+    username: 'sarah_creates',
+    displayName: 'Sarah Chen',
+    avatar: '',
+    tier: 'herald',
+    httnPoints: 45200,
+    httnTokens: 890.5,
+    espees: 45.2,
+    reputation: 95,
+    badges: [
+      { id: '1', name: 'Top Herald', icon: '👑', rarity: 'legendary' },
+      { id: '3', name: 'Community Builder', icon: '🏛️', rarity: 'epic' },
+    ],
+    joinedAt: new Date('2023-11-01'),
+  },
+  {
+    id: '3',
+    username: 'marcus_vision',
+    displayName: 'Marcus Williams',
+    avatar: '',
+    tier: 'partner',
+    httnPoints: 28900,
+    httnTokens: 567.2,
+    espees: 28.9,
+    reputation: 91,
+    badges: [
+      { id: '2', name: 'Verified Partner', icon: '✅', rarity: 'rare' },
+    ],
+    joinedAt: new Date('2023-12-20'),
+  },
+  {
+    id: '4',
+    username: 'elena_inspire',
+    displayName: 'Elena Rodriguez',
+    avatar: '',
+    tier: 'creator',
+    httnPoints: 18700,
+    httnTokens: 345.1,
+    espees: 18.7,
+    reputation: 88,
+    badges: [
+      { id: '4', name: 'Rising Star', icon: '⭐', rarity: 'rare' },
+    ],
+    joinedAt: new Date('2024-02-10'),
+  },
+];
+
+export const mockPosts: Post[] = [
+  {
+    id: '1',
+    author: mockUsers[0],
+    content: 'Just launched our community impact report! 🚀 This quarter we helped 500+ creators earn their first HTTN tokens. The future of creator economy is here, and it belongs to all of us.',
+    likes: 342,
+    comments: 56,
+    shares: 89,
+    httnEarned: 245,
+    createdAt: new Date(Date.now() - 1000 * 60 * 30),
+    isLiked: false,
+    isShared: false,
+  },
+  {
+    id: '2',
+    author: mockUsers[1],
+    content: 'Excited to announce our new partnership program! 🤝 Partners will now receive 2x multipliers on all engagement rewards. Building together, growing together.',
+    likes: 567,
+    comments: 123,
+    shares: 201,
+    httnEarned: 890,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
+    isLiked: true,
+    isShared: false,
+  },
+  {
+    id: '3',
+    author: mockUsers[2],
+    content: 'Every contribution matters. Every voice counts. Today I learned that my small daily actions have compounded into real impact. Thank you, Herald community. 💛',
+    likes: 234,
+    comments: 45,
+    shares: 67,
+    httnEarned: 156,
+    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5),
+    isLiked: false,
+    isShared: true,
+  },
+];
+
+export const mockTasks: Task[] = [
+  {
+    id: '1',
+    title: 'Engage with 3 posts',
+    description: 'Like, comment, or share 3 posts from your feed',
+    reward: 50,
+    type: 'daily',
+    progress: 1,
+    target: 3,
+    completed: false,
+  },
+  {
+    id: '2',
+    title: 'Create meaningful content',
+    description: 'Publish a post that receives at least 10 engagements',
+    reward: 150,
+    type: 'daily',
+    progress: 0,
+    target: 1,
+    completed: false,
+  },
+  {
+    id: '3',
+    title: 'Welcome new members',
+    description: 'Comment on posts from users who joined this week',
+    reward: 75,
+    type: 'weekly',
+    progress: 3,
+    target: 5,
+    completed: false,
+  },
+  {
+    id: '4',
+    title: 'Community Champion',
+    description: 'Accumulate 500 engagement points this week',
+    reward: 500,
+    type: 'weekly',
+    progress: 340,
+    target: 500,
+    completed: false,
+  },
+];
+
+export const walletBalance: WalletBalance = {
+  httnPoints: 12450,
+  httnTokens: 245.8,
+  espees: 12.45,
+  pendingRewards: 85,
+};

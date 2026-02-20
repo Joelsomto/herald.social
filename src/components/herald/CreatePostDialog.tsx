@@ -28,13 +28,6 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
 
     setLoading(true);
     try {
-      console.log('Creating post with:', {
-        author_id: user.id,
-        content: content.trim(),
-        media_type: mediaType,
-        media_url: mediaUrl,
-      });
-
       const { data: newPost, error } = await supabase
         .from('posts')
         .insert({
@@ -56,8 +49,6 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
         });
         throw error;
       }
-
-      console.log('Post created successfully:', newPost);
 
       toast({
         title: 'Post created!',
@@ -84,7 +75,6 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
       
       // Small delay to ensure database commit before refreshing
       setTimeout(() => {
-        console.log('Calling onPostCreated callback...');
         onPostCreated();
       }, 100);
     } catch (error: any) {

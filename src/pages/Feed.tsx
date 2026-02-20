@@ -151,7 +151,88 @@ export default function Feed() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // Define all functions before useEffects that use them
+  useEffect(() => {
+    if (user) {
+      fetchUserData();
+      fetchPosts();
+      fetchTopCreators();
+      subscribeToNewPosts();
+    }
+  }, [user]);
+
+  const subscribeToNewPosts = useCallback(() => {
+    const channel = supabase
+      .channel('feed-posts')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'posts' },
+        (payload) => {
+          const newPost = payload.new;
+          // If it's not the current user's post, show notification
+          if (newPost.author_id !== user?.id) {
+            setNewPostsAvailable(prev => prev + 1);
+          } else {
+            fetchPosts();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
+
+  // Infinite scroll setup
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadMorePosts();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (loadMoreRef.current) {
+      observerRef.current.observe(loadMoreRef.current);
+    }
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [hasMore, isLoadingMore, posts]);
+
+  const loadMorePosts = async () => {
+    if (isLoadingMore || !hasMore || posts.length === 0) return;
+    
+    setIsLoadingMore(true);
+    const lastPost = posts[posts.length - 1];
+    
+    const { data } = await supabase
+      .from('posts')
+      .select(`
+        *,
+        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
+      `)
+      .lt('created_at', lastPost.created_at)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (data) {
+      if (data.length < 10) setHasMore(false);
+      setPosts(prev => [...prev, ...data.map(p => ({ ...p, author: p.author as unknown as Profile }))]);
+    }
+    setIsLoadingMore(false);
+  };
+
+  const loadNewPosts = async () => {
+    await fetchPosts();
+    setNewPostsAvailable(0);
+  };
+
   const fetchUserData = async () => {
     if (!user) return;
 
@@ -166,165 +247,18 @@ export default function Feed() {
     if (tasksRes.data) setTasks(tasksRes.data);
   };
 
-  const fetchUserInteractions = async (postIds: string[]) => {
-    if (!user || postIds.length === 0) return new Map();
-    
+  const fetchPosts = async () => {
     const { data } = await supabase
-      .from('post_interactions')
-      .select('post_id, interaction_type')
-      .eq('user_id', user.id)
-      .in('post_id', postIds)
-      .in('interaction_type', ['like', 'share', 'bookmark']);
+      .from('posts')
+      .select(`
+        *,
+        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(20);
 
-    const interactionsMap = new Map<string, { liked: boolean; reposted: boolean; bookmarked: boolean }>();
-    
-    postIds.forEach(postId => {
-      interactionsMap.set(postId, { liked: false, reposted: false, bookmarked: false });
-    });
-
-    data?.forEach(interaction => {
-      const current = interactionsMap.get(interaction.post_id) || { liked: false, reposted: false, bookmarked: false };
-      if (interaction.interaction_type === 'like') current.liked = true;
-      if (interaction.interaction_type === 'share') current.reposted = true;
-      if (interaction.interaction_type === 'bookmark') current.bookmarked = true;
-      interactionsMap.set(interaction.post_id, current);
-    });
-
-    return interactionsMap;
-  };
-
-  const fetchPosts = async (retryCount = 0) => {
-    setIsLoading(true);
-    setError(null);
-    console.log('Fetching posts...', { filter: feedFilter });
-    
-    try {
-      let query = supabase.from('posts').select('*');
-      
-      // Apply filter
-      if (feedFilter === 'trending') {
-        // Sort by engagement (likes + comments + shares) in last 24 hours
-        query = query.order('likes_count', { ascending: false });
-      } else if (feedFilter === 'following') {
-        // TODO: Filter by followed users
-        query = query.order('created_at', { ascending: false });
-      } else {
-        // Recent (default)
-        query = query.order('created_at', { ascending: false });
-      }
-      
-      const { data: postsData, error: postsError } = await query.limit(20);
-
-      if (postsError) {
-        console.error('Error fetching posts:', postsError);
-        
-        // If author_id column doesn't exist, try querying without it
-        if (postsError.code === '42703' || postsError.message.includes('author_id')) {
-          console.warn('author_id column may not exist, trying alternative query...');
-          const { data: altPosts, error: altError } = await supabase
-            .from('posts')
-            .select('id, content, created_at, media_type, media_url, likes_count, comments_count, shares_count')
-            .order('created_at', { ascending: false })
-            .limit(20);
-          
-          if (!altError && altPosts) {
-            console.log(`Found ${altPosts.length} posts (without author_id)`);
-            const mappedPosts = altPosts.map(p => ({
-              id: p.id,
-              content: p.content,
-              created_at: p.created_at,
-              media_type: p.media_type,
-              media_url: p.media_url,
-              likes_count: p.likes_count || 0,
-              comments_count: p.comments_count || 0,
-              shares_count: p.shares_count || 0,
-              httn_earned: 0,
-              author_id: null as any,
-              author: {
-                display_name: 'Unknown',
-                username: 'unknown',
-                tier: 'participant',
-                reputation: 0,
-                avatar_url: null,
-                is_creator: false,
-                is_verified: false,
-              }
-            }));
-            setPosts(mappedPosts);
-            setIsLoading(false);
-            return;
-          }
-        }
-        
-        if (retryCount < 2) {
-          setTimeout(() => fetchPosts(retryCount + 1), 1000 * (retryCount + 1));
-          return;
-        }
-        
-        setError('Failed to load posts. Please try again.');
-        setIsLoading(false);
-        return;
-      }
-
-      console.log(`Fetched ${postsData?.length || 0} posts`);
-
-      if (postsData && postsData.length > 0) {
-        // Get unique author IDs
-        const authorIds = [...new Set(postsData.map(p => p.author_id).filter(Boolean))];
-        console.log('Author IDs to fetch:', authorIds);
-        
-        // Fetch profiles and user interactions in parallel
-        const [profilesRes, interactionsMap] = await Promise.all([
-          supabase
-            .from('profiles')
-            .select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified')
-            .in('user_id', authorIds),
-          fetchUserInteractions(postsData.map(p => p.id))
-        ]);
-
-        const profilesData = profilesRes.data;
-        if (profilesRes.error) {
-          console.error('Error fetching profiles:', profilesRes.error);
-        } else {
-          console.log(`Fetched ${profilesData?.length || 0} profiles`);
-        }
-
-        // Create a map of user_id -> profile
-        const profileMap = new Map(
-          (profilesData || []).map(p => [p.user_id, p])
-        );
-
-        // Combine posts with author profiles and user interactions
-        const postsWithAuthors = postsData.map(p => {
-          const interactions = interactionsMap.get(p.id) || { liked: false, reposted: false, bookmarked: false };
-          return {
-            ...p,
-            author: profileMap.get(p.author_id) as unknown as Profile || {
-              display_name: 'Unknown',
-              username: 'unknown',
-              tier: 'participant',
-              reputation: 0,
-              avatar_url: null,
-              is_creator: false,
-              is_verified: false,
-            },
-            isLiked: interactions.liked,
-            isReposted: interactions.reposted,
-            isBookmarked: interactions.bookmarked,
-          };
-        });
-
-        console.log('Setting posts:', postsWithAuthors.length);
-        setPosts(postsWithAuthors);
-        setUserInteractions(interactionsMap);
-      } else {
-        console.log('No posts found in database, dummy posts will still show');
-      }
-    } catch (err) {
-      console.error('Unexpected error fetching posts:', err);
-      setError('An unexpected error occurred. Please refresh the page.');
-    } finally {
-      setIsLoading(false);
+    if (data) {
+      setPosts(data.map(p => ({ ...p, author: p.author as unknown as Profile })));
     }
   };
 
@@ -338,54 +272,9 @@ export default function Feed() {
     if (data) setTopCreators(data);
   };
 
-  const loadMorePosts = async () => {
-    if (isLoadingMore || !hasMore || posts.length === 0) return;
-    
-    setIsLoadingMore(true);
-    const lastPost = posts[posts.length - 1];
-    
-    const { data } = await supabase
-      .from('posts')
-      .select('*')
-      .lt('created_at', lastPost.created_at)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (data && data.length > 0) {
-      // Get author IDs and fetch profiles
-      const authorIds = [...new Set(data.map(p => p.author_id).filter(Boolean))];
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified')
-        .in('user_id', authorIds);
-
-      const profileMap = new Map((profilesData || []).map(p => [p.user_id, p]));
-      
-      if (data.length < 10) setHasMore(false);
-      setPosts(prev => [...prev, ...data.map(p => ({
-        ...p,
-        author: profileMap.get(p.author_id) as unknown as Profile || {
-          display_name: 'Unknown',
-          username: 'unknown',
-          tier: 'participant',
-          reputation: 0,
-          avatar_url: null,
-          is_creator: false,
-          is_verified: false,
-        }
-      }))]);
-    }
-    setIsLoadingMore(false);
-  };
-
-  const loadNewPosts = async () => {
-    await fetchPosts();
-    setNewPostsAvailable(0);
-  };
-
   const handleLike = async (postId: string) => {
     if (!user || interactingPosts.has(postId)) return;
-    
+
     const post = posts.find(p => p.id === postId);
     if (!post) return;
 
@@ -403,40 +292,46 @@ export default function Feed() {
     try {
       if (wasLiked) {
         // Unlike: delete interaction
-        await supabase
+        const { error: deleteError } = await supabase
           .from('post_interactions')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id)
           .eq('interaction_type', 'like');
+
+        if (deleteError) throw deleteError;
         
-        await supabase.from('posts').update({ 
+        const { error: updateError } = await supabase.from('posts').update({ 
           likes_count: Math.max(0, post.likes_count - 1)
         }).eq('id', postId);
+
+        if (updateError) throw updateError;
       } else {
         // Like: insert interaction
-        const { error } = await supabase.from('post_interactions').insert({
+        const { error: insertError } = await supabase.from('post_interactions').insert({
           post_id: postId,
           user_id: user.id,
           interaction_type: 'like',
         });
 
-        if (!error) {
-          await supabase.from('posts').update({ 
-            likes_count: post.likes_count + 1 
-          }).eq('id', postId);
+        if (insertError) throw insertError;
 
-          // Send notification to post author
-          if (post.author_id !== user.id) {
-            createNotification(
-              post.author_id,
-              'like',
-              'New Like',
-              'liked your post',
-              postId,
-              'post'
-            );
-          }
+        const { error: updateError } = await supabase.from('posts').update({ 
+          likes_count: post.likes_count + 1 
+        }).eq('id', postId);
+
+        if (updateError) throw updateError;
+
+        // Send notification to post author
+        if (post.author_id !== user.id) {
+          createNotification(
+            post.author_id,
+            'like',
+            'New Like',
+            'liked your post',
+            postId,
+            'post'
+          );
         }
       }
     } catch (error) {
@@ -481,40 +376,46 @@ export default function Feed() {
     try {
       if (wasReposted) {
         // Unrepost: delete interaction
-        await supabase
+        const { error: deleteError } = await supabase
           .from('post_interactions')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id)
           .eq('interaction_type', 'share');
+
+        if (deleteError) throw deleteError;
         
-        await supabase.from('posts').update({ 
+        const { error: updateError } = await supabase.from('posts').update({ 
           shares_count: Math.max(0, post.shares_count - 1)
         }).eq('id', postId);
+
+        if (updateError) throw updateError;
       } else {
         // Repost: insert interaction
-        const { error } = await supabase.from('post_interactions').insert({
+        const { error: insertError } = await supabase.from('post_interactions').insert({
           post_id: postId,
           user_id: user.id,
           interaction_type: 'share',
         });
 
-        if (!error) {
-          await supabase.from('posts').update({ 
-            shares_count: post.shares_count + 1 
-          }).eq('id', postId);
+        if (insertError) throw insertError;
 
-          // Send notification to post author
-          if (post.author_id !== user.id) {
-            createNotification(
-              post.author_id,
-              'share',
-              'Repost!',
-              'reposted your content',
-              postId,
-              'post'
-            );
-          }
+        const { error: updateError } = await supabase.from('posts').update({ 
+          shares_count: post.shares_count + 1 
+        }).eq('id', postId);
+
+        if (updateError) throw updateError;
+
+        // Send notification to post author
+        if (post.author_id !== user.id) {
+          createNotification(
+            post.author_id,
+            'share',
+            'Repost!',
+            'reposted your content',
+            postId,
+            'post'
+          );
         }
       }
     } catch (error) {
@@ -557,18 +458,23 @@ export default function Feed() {
 
     try {
       if (wasBookmarked) {
-        await supabase
+        const { error: deleteError } = await supabase
           .from('post_interactions')
           .delete()
           .eq('post_id', postId)
           .eq('user_id', user.id)
           .eq('interaction_type', 'bookmark');
+
+        if (deleteError) throw deleteError;
       } else {
-        await supabase.from('post_interactions').insert({
+        const { error: insertError } = await supabase.from('post_interactions').insert({
           post_id: postId,
           user_id: user.id,
           interaction_type: 'bookmark',
         });
+
+        if (insertError) throw insertError;
+
         toast({
           title: 'Bookmarked',
           description: 'Post saved to your bookmarks',
@@ -759,78 +665,6 @@ export default function Feed() {
     await fetchUserData();
   };
 
-  const subscribeToNewPosts = useCallback(() => {
-    if (!user) return;
-
-    console.log('Subscribing to new posts...');
-    const channel = supabase
-      .channel('feed-posts')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'posts' },
-        (payload) => {
-          console.log('New post detected:', payload);
-          const newPost = payload.new;
-          // If it's not the current user's post, show notification
-          if (newPost.author_id !== user?.id) {
-            console.log('New post from another user, showing notification');
-            setNewPostsAvailable(prev => prev + 1);
-          } else {
-            console.log('New post from current user, refreshing feed');
-            fetchPosts();
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
-      });
-
-    return () => {
-      console.log('Unsubscribing from posts');
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // useEffects after all function definitions
-  useEffect(() => {
-    if (user) {
-      fetchUserData();
-      fetchPosts().catch(err => {
-        console.warn('Failed to fetch posts, showing dummy posts instead:', err);
-      });
-      fetchTopCreators();
-    }
-  }, [user, feedFilter]);
-
-  useEffect(() => {
-    if (user) {
-      const unsubscribe = subscribeToNewPosts();
-      return unsubscribe;
-    }
-  }, [user, subscribeToNewPosts]);
-
-  // Infinite scroll setup
-  useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          loadMorePosts();
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    if (loadMoreRef.current) {
-      observerRef.current.observe(loadMoreRef.current);
-    }
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [hasMore, isLoadingMore, posts]);
-
   const rightSidebar = (
     <RightSidebarWithAds>
       <WalletPreview balance={walletBalance} />
@@ -872,33 +706,6 @@ export default function Feed() {
     </RightSidebarWithAds>
   );
 
-
-  // Debug: Log dummy posts
-  console.log('Feed render - dummyPosts:', dummyPosts.length, 'posts:', posts.length);
-
-  // Loading skeleton component
-  const PostSkeleton = () => (
-    <div className="px-4 py-3 border-b border-border animate-pulse">
-      <div className="flex gap-3">
-        <div className="w-10 h-10 rounded-full bg-secondary flex-shrink-0" />
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="h-4 w-24 bg-secondary rounded" />
-            <div className="h-4 w-16 bg-secondary rounded" />
-          </div>
-          <div className="space-y-2">
-            <div className="h-4 w-full bg-secondary rounded" />
-            <div className="h-4 w-3/4 bg-secondary rounded" />
-          </div>
-          <div className="flex gap-6 mt-3">
-            <div className="h-4 w-12 bg-secondary rounded" />
-            <div className="h-4 w-12 bg-secondary rounded" />
-            <div className="h-4 w-12 bg-secondary rounded" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
 
   return (
     <MainLayout rightSidebar={rightSidebar}>
@@ -1042,24 +849,21 @@ export default function Feed() {
       )}
 
       {/* Feed */}
-      <div className="transition-opacity duration-200">
-        {/* Show dummy posts - always visible for demo */}
-        {dummyPosts && dummyPosts.length > 0 ? (
-          dummyPosts.map((post, index) => (
-            <div key={post.id}>
-              <TwitterStylePost
-                id={post.id}
-                author={post.author}
-                content={post.content}
-                likes={post.likes}
-                comments={post.comments}
-                reposts={post.reposts}
-                httnEarned={post.httnEarned}
-                createdAt={post.createdAt}
+      <div>
+        {/* Show dummy posts first, then real posts */}
+        {dummyPosts.map((post, index) => (
+          <div key={post.id}>
+            <TwitterStylePost
+              id={post.id}
+              author={post.author}
+              content={post.content}
+              likes={post.likes}
+              comments={post.comments}
+              reposts={post.reposts}
+              httnEarned={post.httnEarned}
+              createdAt={post.createdAt}
               onLike={handleLike}
               onRepost={handleRepost}
-              onBookmark={handleBookmark}
-              onShare={handleShare}
             />
             {/* Insert ads between posts */}
             {index === 1 && (
@@ -1068,28 +872,11 @@ export default function Feed() {
               </div>
             )}
           </div>
-        ))
-        ) : (
-          <div className="p-8 text-center text-muted-foreground">
-            <p>No posts available</p>
-          </div>
-        )}
+        ))}
 
-        {/* Loading skeletons */}
-        {isLoading && posts.length === 0 && (
-          <>
-            {[...Array(3)].map((_, i) => (
-              <PostSkeleton key={`skeleton-${i}`} />
-            ))}
-          </>
-        )}
-
-        {/* Real posts from database - shown after dummy posts */}
-        {posts && posts.length > 0 && posts.map((post, index) => (
-          <div 
-            key={post.id}
-            className="transition-all duration-200 hover:bg-secondary/20"
-          >
+        {/* Real posts from database */}
+        {posts.map((post, index) => (
+          <div key={post.id}>
             <TwitterStylePost
               id={post.id}
               author={{

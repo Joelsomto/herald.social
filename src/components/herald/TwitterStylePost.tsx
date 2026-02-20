@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Heart,
@@ -41,9 +41,12 @@ interface TwitterStylePostProps {
   createdAt: Date;
   isLiked?: boolean;
   isReposted?: boolean;
+  isBookmarked?: boolean;
   onLike?: (id: string) => void;
   onRepost?: (id: string) => void;
   onComment?: (id: string) => void;
+  onBookmark?: (id: string) => void;
+  onShare?: (id: string) => void;
 }
 
 function formatTimeAgo(date: Date): string {
@@ -71,16 +74,41 @@ export function TwitterStylePost({
   createdAt,
   isLiked: initialLiked = false,
   isReposted: initialReposted = false,
+  isBookmarked: initialBookmarked = false,
   onLike,
   onRepost,
   onComment,
+  onBookmark,
+  onShare,
 }: TwitterStylePostProps) {
   const [isLiked, setIsLiked] = useState(initialLiked);
   const [isReposted, setIsReposted] = useState(initialReposted);
+  const [isBookmarked, setIsBookmarked] = useState(initialBookmarked);
   const [likeCount, setLikeCount] = useState(likes);
   const [repostCount, setRepostCount] = useState(reposts);
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(comments);
+
+  // Sync with prop changes
+  useEffect(() => {
+    setIsLiked(initialLiked);
+  }, [initialLiked]);
+
+  useEffect(() => {
+    setIsReposted(initialReposted);
+  }, [initialReposted]);
+
+  useEffect(() => {
+    setIsBookmarked(initialBookmarked);
+  }, [initialBookmarked]);
+
+  useEffect(() => {
+    setLikeCount(likes);
+  }, [likes]);
+
+  useEffect(() => {
+    setRepostCount(reposts);
+  }, [reposts]);
 
   const handleLike = () => {
     setIsLiked(!isLiked);
@@ -222,17 +250,29 @@ export function TwitterStylePost({
               <span className="text-sm">{likeCount > 0 ? likeCount : ''}</span>
             </button>
 
-            <button className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group">
-              <div className="p-2 rounded-full group-hover:bg-blue-400/10">
-                <Bookmark className="w-4 h-4" />
-              </div>
-            </button>
+            {onBookmark && (
+              <button 
+                onClick={() => onBookmark(id)}
+                className={`flex items-center gap-1 transition-colors group ${
+                  isBookmarked ? 'text-primary' : 'text-muted-foreground hover:text-primary'
+                }`}
+              >
+                <div className="p-2 rounded-full group-hover:bg-primary/10">
+                  <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
+                </div>
+              </button>
+            )}
 
-            <button className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group">
-              <div className="p-2 rounded-full group-hover:bg-blue-400/10">
-                <Share className="w-4 h-4" />
-              </div>
-            </button>
+            {onShare && (
+              <button 
+                onClick={() => onShare(id)}
+                className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group"
+              >
+                <div className="p-2 rounded-full group-hover:bg-blue-400/10">
+                  <Share className="w-4 h-4" />
+                </div>
+              </button>
+            )}
           </div>
 
           {/* Inline Comments Section */}

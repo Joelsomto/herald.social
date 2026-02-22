@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, X, BadgeCheck, TrendingUp, Clock } from 'lucide-react';
+import { Search, X, BadgeCheck, TrendingUp, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 
@@ -26,6 +26,7 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [searching, setSearching] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -41,38 +42,43 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
     const search = async () => {
       if (query.length < 2) {
         setResults([]);
+        setSearching(false);
         return;
       }
+      setSearching(true);
+      try {
+        const [profilesRes, postsRes] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('user_id, display_name, username, avatar_url, is_verified')
+            .or(`display_name.ilike.%${query}%,username.ilike.%${query}%`)
+            .limit(5),
+          supabase
+            .from('posts')
+            .select('id, content')
+            .ilike('content', `%${query}%`)
+            .limit(3),
+        ]);
 
-      const [profilesRes, postsRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('user_id, display_name, username, avatar_url, is_verified')
-          .or(`display_name.ilike.%${query}%,username.ilike.%${query}%`)
-          .limit(5),
-        supabase
-          .from('posts')
-          .select('id, content')
-          .ilike('content', `%${query}%`)
-          .limit(3),
-      ]);
+        const userResults: SearchResult[] = (profilesRes.data || []).map((p: { user_id: string; display_name?: string | null; username?: string | null; avatar_url?: string | null; is_verified?: boolean }) => ({
+          type: 'user' as const,
+          id: p.user_id,
+          title: p.display_name || p.username || 'Unknown',
+          subtitle: `@${p.username || 'unknown'}`,
+          avatar: p.avatar_url,
+          isVerified: p.is_verified,
+        }));
 
-      const userResults: SearchResult[] = (profilesRes.data || []).map(p => ({
-        type: 'user',
-        id: p.user_id,
-        title: p.username || 'Unknown', // Use username if display_name doesn't exist
-        subtitle: `@${p.username || 'unknown'}`,
-        avatar: p.avatar_url,
-        isVerified: p.is_verified,
-      }));
+        const postResults: SearchResult[] = (postsRes.data || []).map((p: { id: string; content: string }) => ({
+          type: 'post' as const,
+          id: p.id,
+          title: p.content.substring(0, 50) + (p.content.length > 50 ? '...' : ''),
+        }));
 
-      const postResults: SearchResult[] = (postsRes.data || []).map(p => ({
-        type: 'post',
-        id: p.id,
-        title: p.content.substring(0, 50) + (p.content.length > 50 ? '...' : ''),
-      }));
-
-      setResults([...userResults, ...postResults]);
+        setResults([...userResults, ...postResults]);
+      } finally {
+        setSearching(false);
+      }
     };
 
     const debounce = setTimeout(search, 300);
@@ -165,13 +171,20 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
               </div>
             )}
 
-            {query.length > 0 && results.length === 0 && (
+            {query.length > 0 && searching && (
+              <div className="p-4 flex items-center justify-center gap-2 text-muted-foreground text-sm">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Searching...
+              </div>
+            )}
+
+            {query.length > 0 && !searching && results.length === 0 && (
               <div className="p-4 text-center text-muted-foreground text-sm">
                 No results found for "{query}"
               </div>
             )}
 
-            {results.length > 0 && (
+            {results.length > 0 && !searching && (
               <div className="divide-y divide-border">
                 {results.map((result) => (
                   <button

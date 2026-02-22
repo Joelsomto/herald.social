@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { 
   Search, 
   TrendingUp, 
@@ -14,13 +15,16 @@ import {
   Play,
   Heart,
   MessageCircle,
-  Share2
+  Share2,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { ScrollableReels } from '@/components/herald/ScrollableReels';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
-import { walletBalance } from '@/data/mockData';
+import { PullToRefresh } from '@/components/herald/PullToRefresh';
 
 interface Creator {
   display_name: string;
@@ -42,40 +46,75 @@ interface Post {
   author: Creator;
 }
 
+const defaultCreator: Creator = {
+  display_name: 'Unknown',
+  username: 'unknown',
+  avatar_url: null,
+  tier: 'participant',
+  reputation: 0,
+};
+
+function mapPostsWithAuthors(
+  posts: { id: string; content: string; author_id?: string; likes_count?: number; comments_count?: number; shares_count?: number; httn_earned?: number; media_url?: string | null; media_type?: string | null; created_at?: string }[],
+  profileMap: Map<string, Creator>
+): Post[] {
+  return posts.map(p => ({
+    id: p.id,
+    content: p.content,
+    media_url: p.media_url ?? null,
+    media_type: p.media_type ?? null,
+    likes_count: p.likes_count ?? 0,
+    comments_count: p.comments_count ?? 0,
+    shares_count: p.shares_count ?? 0,
+    httn_earned: p.httn_earned ?? 0,
+    author: (p.author_id && profileMap.get(p.author_id)) || defaultCreator,
+  }));
+}
+
 export default function Explore() {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [trendingPosts, setTrendingPosts] = useState<Post[]>([]);
   const [topCreators, setTopCreators] = useState<Creator[]>([]);
   const [reels, setReels] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<{ httn_points: number; httn_tokens: number; espees: number; pending_rewards: number } | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const [postsRes, creatorsRes, reelsRes, walletRes] = await Promise.all([
+        supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').order('likes_count', { ascending: false }).limit(10),
+        supabase.from('profiles').select('user_id, display_name, username, avatar_url, tier, reputation').order('reputation', { ascending: false }).limit(10),
+        supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').eq('media_type', 'reel').order('created_at', { ascending: false }).limit(12),
+        user ? supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+      ]);
+
+      const authorIds = new Set<string>();
+      if (postsRes.data) postsRes.data.forEach(p => p.author_id && authorIds.add(p.author_id));
+      if (reelsRes.data) reelsRes.data.forEach(p => p.author_id && authorIds.add(p.author_id));
+      const ids = Array.from(authorIds);
+      const { data: profilesData } = ids.length
+        ? await supabase.from('profiles').select('user_id, display_name, username, avatar_url, tier, reputation').in('user_id', ids)
+        : { data: [] };
+      const profileMap = new Map((profilesData || []).map(p => [p.user_id, p as Creator]));
+
+      if (postsRes.data) setTrendingPosts(mapPostsWithAuthors(postsRes.data, profileMap));
+      if (creatorsRes.data) setTopCreators(creatorsRes.data as Creator[]);
+      if (reelsRes.data) setReels(mapPostsWithAuthors(reelsRes.data, profileMap));
+      if (walletRes?.data) setWallet(walletRes.data);
+    } catch (e) {
+      setError('Failed to load explore. Pull down to retry.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    const [postsRes, creatorsRes, reelsRes] = await Promise.all([
-      supabase
-        .from('posts')
-        .select(`*, author:profiles!posts_author_id_fkey(display_name, username, avatar_url, tier, reputation)`)
-        .order('likes_count', { ascending: false })
-        .limit(10),
-      supabase
-        .from('profiles')
-        .select('*')
-        .order('reputation', { ascending: false })
-        .limit(10),
-      supabase
-        .from('posts')
-        .select(`*, author:profiles!posts_author_id_fkey(display_name, username, avatar_url, tier, reputation)`)
-        .eq('media_type', 'reel')
-        .order('created_at', { ascending: false })
-        .limit(12),
-    ]);
-
-    if (postsRes.data) setTrendingPosts(postsRes.data.map(p => ({ ...p, author: p.author as unknown as Creator })));
-    if (creatorsRes.data) setTopCreators(creatorsRes.data);
-    if (reelsRes.data) setReels(reelsRes.data.map(p => ({ ...p, author: p.author as unknown as Creator })));
-  };
+  }, [fetchData]);
 
   // Dummy data for demo
   const dummyPosts: Post[] = [
@@ -99,8 +138,13 @@ export default function Explore() {
     { id: 'r12', content: 'From 0 to 10K followers', media_url: 'https://images.unsplash.com/photo-1533227268428-f9ed0900fb3b?w=400', media_type: 'reel', likes_count: 2100, comments_count: 156, shares_count: 345, httn_earned: 1200, author: { display_name: 'Emily Zhang', username: 'emilyzhang', avatar_url: null, tier: 'herald', reputation: 7800 } },
   ];
 
-  const displayPosts = trendingPosts.length > 0 ? trendingPosts : dummyPosts;
+  const displayPosts = (trendingPosts.length > 0 ? trendingPosts : dummyPosts).filter(
+    p => !searchQuery.trim() || p.content.toLowerCase().includes(searchQuery.toLowerCase()) || (p.author?.display_name && p.author.display_name.toLowerCase().includes(searchQuery.toLowerCase())) || (p.author?.username && p.author.username.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
   const displayReels = reels.length > 0 ? reels : dummyReels;
+  const walletBalance = wallet
+    ? { httnPoints: wallet.httn_points, httnTokens: Number(wallet.httn_tokens), espees: Number(wallet.espees), pendingRewards: wallet.pending_rewards }
+    : { httnPoints: 0, httnTokens: 0, espees: 0, pendingRewards: 0 };
 
   const trendingTopics = [
     { name: '#HeraldLaunch', posts: 1234 },
@@ -121,26 +165,37 @@ export default function Explore() {
 
   const rightSidebar = (
     <>
-      <WalletPreview balance={walletBalance} />
+      {user && <WalletPreview balance={walletBalance} />}
       <VerticalAdBanner {...verticalAds[adIndex]} />
     </>
   );
 
   return (
     <MainLayout rightSidebar={rightSidebar}>
-      <div className="p-6 space-y-6">
-        {/* Search Header */}
-        <div className="flex items-center gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="Search creators, posts, topics..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 bg-secondary border-border"
-            />
+      <PullToRefresh onRefresh={fetchData}>
+        <div className="p-6 space-y-6">
+          {error && (
+            <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+              <span className="text-sm text-destructive flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" /> {error}
+              </span>
+              <Button variant="outline" size="sm" onClick={() => fetchData()}>
+                <RefreshCw className="w-4 h-4 mr-1" /> Retry
+              </Button>
+            </div>
+          )}
+          {/* Search Header */}
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+              <Input
+                placeholder="Search creators, posts, topics..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 bg-secondary border-border"
+              />
+            </div>
           </div>
-        </div>
 
         <Tabs defaultValue="trending" className="w-full">
           <TabsList>
@@ -193,6 +248,29 @@ export default function Explore() {
                 <Flame className="w-5 h-5 text-primary" />
                 Hot Posts
               </h3>
+              {loading ? (
+                <div className="grid gap-4">
+                  {[1, 2, 3].map(i => (
+                    <Card key={i} className="bg-card border-border">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <Skeleton className="w-10 h-10 rounded-full" />
+                          <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-3 w-full" />
+                            <Skeleton className="h-3 w-2/3" />
+                            <div className="flex gap-4 pt-2">
+                              <Skeleton className="h-4 w-12" />
+                              <Skeleton className="h-4 w-12" />
+                              <Skeleton className="h-4 w-12" />
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
               <div className="grid gap-4">
                 {displayPosts.map((post) => (
                     <Card key={post.id} className="bg-card border-border">
@@ -231,6 +309,7 @@ export default function Explore() {
                     </Card>
                 ))}
               </div>
+              )}
             </div>
           </TabsContent>
 
@@ -318,6 +397,7 @@ export default function Explore() {
           </TabsContent>
         </Tabs>
       </div>
+      </PullToRefresh>
     </MainLayout>
   );
 }

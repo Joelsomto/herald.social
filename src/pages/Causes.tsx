@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Heart,
   Search,
@@ -22,14 +23,16 @@ import {
   BookOpen,
   Stethoscope,
   GraduationCap,
-  HandHeart
+  HandHeart,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
-import { walletBalance } from '@/data/mockData';
 
 interface Cause {
   id: string;
@@ -119,32 +122,67 @@ const demoCauses: Cause[] = [
   },
 ];
 
+function mapCause(row: { id: string; title: string; description: string; category: string; image_url: string | null; goal_amount: number; raised_amount: number | null; status: string | null; created_by: string }): Cause {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    image_url: row.image_url,
+    goal_amount: row.goal_amount,
+    raised_amount: row.raised_amount ?? 0,
+    status: row.status ?? 'active',
+    created_by: row.created_by,
+  };
+}
+
 export default function Causes() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [causes, setCauses] = useState<Cause[]>(demoCauses);
+  const [causes, setCauses] = useState<Cause[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [donateDialogOpen, setDonateDialogOpen] = useState(false);
   const [selectedCause, setSelectedCause] = useState<Cause | null>(null);
   const [donationAmount, setDonationAmount] = useState('');
   const [donationMessage, setDonationMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<{ httn_points: number; httn_tokens: number; espees: number; pending_rewards: number } | null>(null);
+
+  const fetchCauses = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('causes')
+        .select('*')
+        .eq('status', 'active')
+        .order('raised_amount', { ascending: false });
+      if (err) throw err;
+      if (data && data.length > 0) {
+        setCauses(data.map(mapCause));
+      } else {
+        setCauses(demoCauses);
+      }
+    } catch {
+      setError('Failed to load causes.');
+      setCauses(demoCauses);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchWallet = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
+    if (data) setWallet(data);
+  }, [user]);
 
   useEffect(() => {
     fetchCauses();
-  }, []);
-
-  const fetchCauses = async () => {
-    const { data } = await supabase
-      .from('causes')
-      .select('*')
-      .eq('status', 'active')
-      .order('raised_amount', { ascending: false });
-    
-    if (data && data.length > 0) {
-      setCauses(data);
-    }
-  };
+    if (user) fetchWallet();
+  }, [user, fetchCauses, fetchWallet]);
 
   const handleDonate = async () => {
     if (!user || !selectedCause) {
@@ -195,11 +233,15 @@ export default function Causes() {
   });
 
   const totalRaised = causes.reduce((sum, c) => sum + c.raised_amount, 0);
-  const totalDonors = 12450; // Demo value
+  const totalDonors = 12450; // Demo / aggregated value
+
+  const walletBalance = wallet
+    ? { httnPoints: wallet.httn_points, httnTokens: Number(wallet.httn_tokens), espees: Number(wallet.espees), pendingRewards: wallet.pending_rewards }
+    : { httnPoints: 0, httnTokens: 0, espees: 0, pendingRewards: 0 };
 
   const rightSidebar = (
     <>
-      <WalletPreview balance={walletBalance} />
+      {user && <WalletPreview balance={walletBalance} />}
       
       {/* Impact Stats */}
       <Card className="bg-card border-border">
@@ -310,6 +352,16 @@ export default function Causes() {
       </header>
 
       <div className="p-4 space-y-6">
+        {error && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchCauses}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
         {/* Hero Banner */}
         <Card className="bg-gradient-to-r from-primary/20 via-primary/10 to-herald-violet/20 border-primary/20">
           <CardContent className="p-6">
@@ -348,22 +400,38 @@ export default function Causes() {
           </TabsList>
 
           <TabsContent value="all" className="mt-6">
-            <div className="grid md:grid-cols-2 gap-4">
-              {filteredCauses.map((cause) => (
-                <CauseCard key={cause.id} cause={cause} />
-              ))}
-            </div>
+            {loading ? (
+              <div className="grid md:grid-cols-2 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-64 rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {filteredCauses.map((cause) => (
+                  <CauseCard key={cause.id} cause={cause} />
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {Object.keys(categoryLabels).map((category) => (
             <TabsContent key={category} value={category} className="mt-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                {filteredCauses
-                  .filter(c => c.category === category)
-                  .map((cause) => (
-                    <CauseCard key={cause.id} cause={cause} />
+              {loading ? (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {[1, 2].map((i) => (
+                    <Skeleton key={i} className="h-64 rounded-lg" />
                   ))}
-              </div>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {filteredCauses
+                    .filter(c => c.category === category)
+                    .map((cause) => (
+                      <CauseCard key={cause.id} cause={cause} />
+                    ))}
+                </div>
+              )}
             </TabsContent>
           ))}
         </Tabs>

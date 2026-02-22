@@ -18,6 +18,9 @@ import {
   Activity,
   DollarSign,
   Eye,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -63,6 +66,8 @@ export default function Admin() {
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -91,22 +96,30 @@ export default function Admin() {
   };
 
   const fetchDashboardData = async () => {
-    const [usersRes, postsRes, walletsRes] = await Promise.all([
-      supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(50),
-      supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(50),
-      supabase.from('wallets').select('id'),
-    ]);
+    setError(null);
+    setLoading(true);
+    try {
+      const [usersRes, postsRes, walletsRes] = await Promise.all([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('wallets').select('id'),
+      ]);
 
-    if (usersRes.data) {
-      setUsers(usersRes.data);
-      setStats(prev => ({ ...prev, totalUsers: usersRes.data.length, activeUsers: Math.floor(usersRes.data.length * 0.7) }));
-    }
-    if (postsRes.data) {
-      setPosts(postsRes.data);
-      setStats(prev => ({ ...prev, totalPosts: postsRes.data.length }));
-    }
-    if (walletsRes.data) {
-      setStats(prev => ({ ...prev, totalTransactions: walletsRes.data.length * 10 }));
+      if (usersRes.data) {
+        setUsers(usersRes.data);
+        setStats(prev => ({ ...prev, totalUsers: usersRes.data.length, activeUsers: Math.floor(usersRes.data.length * 0.7) }));
+      }
+      if (postsRes.data) {
+        setPosts(postsRes.data);
+        setStats(prev => ({ ...prev, totalPosts: postsRes.data.length }));
+      }
+      if (walletsRes.data) {
+        setStats(prev => ({ ...prev, totalTransactions: walletsRes.data.length * 10 }));
+      }
+    } catch {
+      setError('Failed to load dashboard data.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -160,6 +173,22 @@ export default function Admin() {
         </header>
 
         <div className="p-4 space-y-6">
+          {error && (
+            <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+              <span className="text-sm text-destructive flex items-center gap-2">
+                <AlertCircle className="w-4 h-4" /> {error}
+              </span>
+              <Button variant="outline" size="sm" onClick={fetchDashboardData}>
+                <RefreshCw className="w-4 h-4 mr-1" /> Retry
+              </Button>
+            </div>
+          )}
+          {loading && !users.length && !posts.length ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <>
           {/* Stats Grid */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard title="Total Users" value={stats.totalUsers.toLocaleString()} icon={Users} trend="+12% this week" />
@@ -299,6 +328,8 @@ export default function Admin() {
               </Card>
             </TabsContent>
           </Tabs>
+            </>
+          )}
         </div>
       </div>
     </MainLayout>

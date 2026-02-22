@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { MobileBottomNav } from '@/components/herald/MobileBottomNav';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { 
+import {
   Video, Radio, Users, Play, Eye, BadgeCheck, Plus, Calendar,
-  TrendingUp, Clock, Sparkles
+  TrendingUp, Clock, Sparkles, Loader2, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -105,33 +105,43 @@ export default function Live() {
   const [streams, setStreams] = useState<LiveStream[]>(DEMO_STREAMS);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [activeTab, setActiveTab] = useState('live');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchStreams = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('live_streams')
+        .select('*')
+        .order('viewer_count', { ascending: false });
+      if (err) throw err;
+
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map(s => s.user_id))];
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, display_name, username, avatar_url, is_verified')
+          .in('user_id', userIds);
+        const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
+        setStreams(data.map(s => ({
+          ...s,
+          viewer_count: s.viewer_count ?? 0,
+          profile: profileMap.get(s.user_id) as LiveStream['profile'],
+        })));
+      }
+      // else keep DEMO_STREAMS (initial state)
+    } catch {
+      setError('Failed to load streams.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     fetchStreams();
-  }, []);
-
-  const fetchStreams = async () => {
-    const { data } = await supabase
-      .from('live_streams')
-      .select('*')
-      .order('viewer_count', { ascending: false });
-
-    if (data && data.length > 0) {
-      // Fetch profiles separately
-      const userIds = [...new Set(data.map(s => s.user_id))];
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, display_name, username, avatar_url, is_verified')
-        .in('user_id', userIds);
-      
-      const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
-      
-      setStreams(data.map(s => ({
-        ...s,
-        profile: profileMap.get(s.user_id) as LiveStream['profile']
-      })));
-    }
-  };
+  }, [fetchStreams]);
 
   const liveStreams = streams.filter(s => s.status === 'live');
   const scheduledStreams = streams.filter(s => s.status === 'scheduled');
@@ -215,6 +225,17 @@ export default function Live() {
           </div>
         </header>
 
+        {error && (
+          <div className="mx-4 mt-4 flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchStreams}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
+
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <div className="border-b border-border px-4">
@@ -237,6 +258,12 @@ export default function Live() {
           </div>
 
           <TabsContent value="live" className="mt-0">
+            {loading ? (
+              <div className="p-8 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <>
             {/* Featured Stream */}
             {liveStreams[0] && (
               <div 
@@ -350,6 +377,8 @@ export default function Live() {
                   Start Streaming
                 </Button>
               </div>
+            )}
+              </>
             )}
           </TabsContent>
 

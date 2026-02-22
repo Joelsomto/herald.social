@@ -8,14 +8,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  BadgeCheck, 
-  MapPin, 
-  Calendar, 
+import {
+  BadgeCheck,
+  MapPin,
+  Calendar,
   Link as LinkIcon,
   ArrowLeft,
   Sparkles,
-  Store
+  Store,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -106,6 +108,7 @@ export default function UserProfile() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [adIndex, setAdIndex] = useState(0);
 
   useEffect(() => {
@@ -120,9 +123,10 @@ export default function UserProfile() {
   }, []);
 
   const fetchProfile = async () => {
+    if (!username) return;
     setLoading(true);
-    
-    // Check for dummy creator profile
+    setError(null);
+
     if (username === 'herald_official') {
       setProfile(dummyCreator);
       setPosts(dummyPosts);
@@ -130,27 +134,35 @@ export default function UserProfile() {
       return;
     }
 
-    const { data: profileData, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('username', username)
-      .single();
-
-    if (profileData) {
-      setProfile(profileData);
-      
-      // Fetch user posts
-      const { data: postsData } = await supabase
-        .from('posts')
+    try {
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
         .select('*')
-        .eq('author_id', profileData.user_id)
-        .order('created_at', { ascending: false })
-        .limit(20);
-      
-      if (postsData) setPosts(postsData);
+        .eq('username', username)
+        .single();
+
+      if (profileError) {
+        setProfile(null);
+        setPosts([]);
+        setLoading(false);
+        return;
+      }
+
+      if (profileData) {
+        setProfile(profileData);
+        const { data: postsData } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('author_id', profileData.user_id)
+          .order('created_at', { ascending: false })
+          .limit(20);
+        if (postsData) setPosts(postsData);
+      }
+    } catch {
+      setError('Failed to load profile.');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const formatNumber = (num: number | null) => {
@@ -188,6 +200,24 @@ export default function UserProfile() {
       <MainLayout rightSidebar={rightSidebar}>
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (!loading && error) {
+    return (
+      <MainLayout rightSidebar={rightSidebar}>
+        <div className="p-8 text-center">
+          <p className="text-destructive flex items-center justify-center gap-2 mb-4">
+            <AlertCircle className="w-5 h-5" /> {error}
+          </p>
+          <Button variant="outline" onClick={fetchProfile} className="gap-2">
+            <RefreshCw className="w-4 h-4" /> Retry
+          </Button>
+          <Link to="/feed" className="block mt-4">
+            <Button variant="ghost">Go to Feed</Button>
+          </Link>
         </div>
       </MainLayout>
     );

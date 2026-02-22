@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
+import { WalletPreview } from '@/components/herald/WalletPreview';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +25,8 @@ import {
   Rocket,
   Shield
 } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { supabase } from '@/integrations/supabase/client';
 
 interface Product {
   id: string;
@@ -136,9 +139,21 @@ const categoryIcons = {
 };
 
 export default function EStore() {
+  const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [favorites, setFavorites] = useState<string[]>([]);
   const [cart, setCart] = useState<string[]>([]);
+  const [wallet, setWallet] = useState<{ httn_points: number; httn_tokens: number; espees: number; pending_rewards: number } | null>(null);
+
+  const fetchWallet = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
+    if (data) setWallet(data);
+  }, [user]);
+
+  useEffect(() => {
+    if (user) fetchWallet();
+  }, [user, fetchWallet]);
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => 
@@ -157,8 +172,13 @@ export default function EStore() {
     p.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const walletBalance = wallet
+    ? { httnPoints: wallet.httn_points, httnTokens: Number(wallet.httn_tokens), espees: Number(wallet.espees), pendingRewards: wallet.pending_rewards }
+    : { httnPoints: 0, httnTokens: 0, espees: 0, pendingRewards: 0 };
+
   const rightSidebar = (
     <div className="space-y-4">
+      {user && <WalletPreview balance={walletBalance} />}
       {/* Cart Preview */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">

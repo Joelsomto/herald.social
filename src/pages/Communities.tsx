@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Users,
   Search,
@@ -24,14 +25,16 @@ import {
   BookOpen,
   Music,
   Lightbulb,
-  HandHeart
+  HandHeart,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
-import { walletBalance } from '@/data/mockData';
 
 interface Community {
   id: string;
@@ -73,10 +76,23 @@ const demoCommunities: Community[] = [
   { id: '8', name: 'Partner Churches', description: 'Private community for partner church leaders.', category: 'general', image_url: null, member_count: 340, is_private: true, created_by: '' },
 ];
 
+function mapCommunity(row: { id: string; name: string; description: string | null; category: string; image_url: string | null; member_count: number | null; is_private: boolean | null; created_by: string }): Community {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    image_url: row.image_url,
+    member_count: row.member_count ?? 0,
+    is_private: row.is_private ?? false,
+    created_by: row.created_by,
+  };
+}
+
 export default function Communities() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [communities, setCommunities] = useState<Community[]>(demoCommunities);
+  const [communities, setCommunities] = useState<Community[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]);
@@ -87,34 +103,54 @@ export default function Communities() {
     category: 'general',
     is_private: false,
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<{ httn_points: number; httn_tokens: number; espees: number; pending_rewards: number } | null>(null);
 
-  useEffect(() => {
-    fetchCommunities();
-    if (user) fetchJoinedCommunities();
-  }, [user]);
-
-  const fetchCommunities = async () => {
-    const { data } = await supabase
-      .from('communities')
-      .select('*')
-      .order('member_count', { ascending: false });
-    
-    if (data && data.length > 0) {
-      setCommunities(data);
+  const fetchCommunities = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('communities')
+        .select('*')
+        .order('member_count', { ascending: false });
+      if (err) throw err;
+      if (data && data.length > 0) {
+        setCommunities(data.map(mapCommunity));
+      } else {
+        setCommunities(demoCommunities);
+      }
+    } catch {
+      setError('Failed to load communities.');
+      setCommunities(demoCommunities);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchJoinedCommunities = async () => {
+  const fetchJoinedCommunities = useCallback(async () => {
     if (!user) return;
     const { data } = await supabase
       .from('community_members')
       .select('community_id')
       .eq('user_id', user.id);
-    
-    if (data) {
-      setJoinedCommunities(data.map(m => m.community_id));
+    if (data) setJoinedCommunities(data.map(m => m.community_id));
+  }, [user]);
+
+  const fetchWallet = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
+    if (data) setWallet(data);
+  }, [user]);
+
+  useEffect(() => {
+    fetchCommunities();
+    if (user) {
+      fetchJoinedCommunities();
+      fetchWallet();
     }
-  };
+  }, [user, fetchCommunities, fetchJoinedCommunities, fetchWallet]);
 
   const handleJoinCommunity = async (communityId: string) => {
     if (!user) {
@@ -169,7 +205,7 @@ export default function Communities() {
     if (error) {
       toast({ title: 'Error', description: 'Failed to create community.' });
     } else if (data) {
-      setCommunities(prev => [data, ...prev]);
+      setCommunities(prev => [mapCommunity(data), ...prev]);
       setCreateDialogOpen(false);
       setNewCommunity({ name: '', description: '', category: 'general', is_private: false });
       toast({ title: 'Success!', description: 'Community created successfully.' });
@@ -183,9 +219,13 @@ export default function Communities() {
     return matchesSearch && matchesCategory;
   });
 
+  const walletBalance = wallet
+    ? { httnPoints: wallet.httn_points, httnTokens: Number(wallet.httn_tokens), espees: Number(wallet.espees), pendingRewards: wallet.pending_rewards }
+    : { httnPoints: 0, httnTokens: 0, espees: 0, pendingRewards: 0 };
+
   const rightSidebar = (
     <>
-      <WalletPreview balance={walletBalance} />
+      {user && <WalletPreview balance={walletBalance} />}
       <VerticalAdBanner {...verticalAds[0]} />
     </>
   );
@@ -302,6 +342,16 @@ export default function Communities() {
       </header>
 
       <div className="p-4 space-y-6">
+        {error && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchCommunities}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
         {/* Search & Filter */}
         <div className="flex gap-3">
           <div className="relative flex-1">
@@ -344,9 +394,17 @@ export default function Communities() {
           </TabsList>
 
           <TabsContent value="discover" className="mt-6 space-y-4">
-            {filteredCommunities.map((community) => (
-              <CommunityCard key={community.id} community={community} />
-            ))}
+            {loading ? (
+              <div className="space-y-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-28 rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              filteredCommunities.map((community) => (
+                <CommunityCard key={community.id} community={community} />
+              ))
+            )}
           </TabsContent>
 
           <TabsContent value="joined" className="mt-6 space-y-4">

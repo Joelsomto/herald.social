@@ -17,8 +17,12 @@ import {
   Sparkles,
   BarChart3,
   Calendar,
-  Globe
+  Globe,
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { ContentInsights } from '@/components/herald/ContentInsights';
@@ -65,28 +69,35 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [earnings, setEarnings] = useState<EarningsData[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
     if (!user) return;
+    setError(null);
+    setLoading(true);
+    try {
+      const [walletRes, profileRes, earningsRes, postsRes] = await Promise.all([
+        supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('earnings_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(30),
+        supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
+      ]);
 
-    const [walletRes, profileRes, earningsRes, postsRes] = await Promise.all([
-      supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('earnings_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(30),
-      supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
-    ]);
-
-    if (walletRes.data) setWallet(walletRes.data);
-    if (profileRes.data) setProfile(profileRes.data);
-    if (earningsRes.data) setEarnings(earningsRes.data);
-    if (postsRes.data) setPosts(postsRes.data);
+      if (walletRes.data) setWallet(walletRes.data);
+      if (profileRes.data) setProfile(profileRes.data);
+      if (earningsRes.data) setEarnings(earningsRes.data);
+      if (postsRes.data) setPosts(postsRes.data);
+    } catch (e) {
+      setError('Failed to load dashboard.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    if (user) fetchData();
+  }, [user]);
 
   // Generate chart data
   const engagementData = [
@@ -156,9 +167,36 @@ export default function Dashboard() {
     </div>
   );
 
+  if (loading && !wallet && !profile) {
+    return (
+      <MainLayout>
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[1, 2, 3, 4].map(i => (
+              <Skeleton key={i} className="h-28 rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout rightSidebar={rightSidebar}>
       <div className="p-6 space-y-6">
+        {error && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchData}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

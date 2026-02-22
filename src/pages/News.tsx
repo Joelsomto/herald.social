@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Newspaper,
   Search,
@@ -16,12 +17,14 @@ import {
   Sparkles,
   Church,
   Stethoscope,
-  Globe
+  Globe,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
-import { walletBalance } from '@/data/mockData';
 import { formatDistanceToNow } from 'date-fns';
 
 interface NewsArticle {
@@ -142,25 +145,47 @@ const demoNews: NewsArticle[] = [
 ];
 
 export default function News() {
-  const [news, setNews] = useState<NewsArticle[]>(demoNews);
+  const { user } = useAuth();
+  const [news, setNews] = useState<NewsArticle[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [savedArticles, setSavedArticles] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<{ httn_points: number; httn_tokens: number; espees: number; pending_rewards: number } | null>(null);
+
+  const fetchNews = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { data, error: err } = await supabase
+        .from('news_articles')
+        .select('*')
+        .order('published_at', { ascending: false })
+        .limit(50);
+      if (err) throw err;
+      if (data && data.length > 0) {
+        setNews(data as NewsArticle[]);
+      } else {
+        setNews(demoNews);
+      }
+    } catch {
+      setError('Failed to load news.');
+      setNews(demoNews);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchWallet = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
+    if (data) setWallet(data);
+  }, [user]);
 
   useEffect(() => {
     fetchNews();
-  }, []);
-
-  const fetchNews = async () => {
-    const { data } = await supabase
-      .from('news_articles')
-      .select('*')
-      .order('published_at', { ascending: false })
-      .limit(50);
-    
-    if (data && data.length > 0) {
-      setNews(data);
-    }
-  };
+    if (user) fetchWallet();
+  }, [fetchNews, user, fetchWallet]);
 
   const toggleSaved = (id: string) => {
     setSavedArticles(prev => 
@@ -173,10 +198,14 @@ export default function News() {
     n.summary?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const walletBalance = wallet
+    ? { httnPoints: wallet.httn_points, httnTokens: Number(wallet.httn_tokens), espees: Number(wallet.espees), pendingRewards: wallet.pending_rewards }
+    : { httnPoints: 0, httnTokens: 0, espees: 0, pendingRewards: 0 };
+
   const rightSidebar = (
     <>
-      <WalletPreview balance={walletBalance} />
-      
+      {user && <WalletPreview balance={walletBalance} />}
+
       {/* Trending Topics */}
       <Card className="bg-card border-border">
         <CardHeader className="pb-2">
@@ -276,6 +305,16 @@ export default function News() {
       </header>
 
       <div className="p-4 space-y-6">
+        {error && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchNews}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -310,19 +349,34 @@ export default function News() {
           </TabsList>
 
           <TabsContent value="all" className="mt-6">
-            <div className="grid md:grid-cols-2 gap-4">
-              {filteredNews.map((article, index) => (
-                <NewsCard 
-                  key={article.id} 
-                  article={article} 
-                  featured={index === 0}
-                />
-              ))}
-            </div>
+            {loading ? (
+              <div className="grid md:grid-cols-2 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Skeleton key={i} className="h-48 rounded-lg" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {filteredNews.map((article, index) => (
+                  <NewsCard 
+                    key={article.id} 
+                    article={article} 
+                    featured={index === 0}
+                  />
+                ))}
+              </div>
+            )}
           </TabsContent>
 
           {Object.keys(sourceLabels).map((sourceType) => (
             <TabsContent key={sourceType} value={sourceType} className="mt-6">
+              {loading ? (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {[1, 2].map((i) => (
+                    <Skeleton key={i} className="h-48 rounded-lg" />
+                  ))}
+                </div>
+              ) : (
               <div className="grid md:grid-cols-2 gap-4">
                 {filteredNews
                   .filter(n => n.source_type === sourceType)
@@ -334,6 +388,7 @@ export default function News() {
                     />
                   ))}
               </div>
+              )}
             </TabsContent>
           ))}
         </Tabs>

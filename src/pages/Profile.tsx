@@ -25,7 +25,9 @@ import {
   Building2,
   Church,
   Briefcase,
+  Loader2,
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
@@ -79,6 +81,7 @@ export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     display_name: '',
@@ -100,7 +103,7 @@ export default function Profile() {
 
   const fetchProfileData = async () => {
     if (!user) return;
-
+    setProfileLoading(true);
     const [profileRes, walletRes, postsRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('wallets').select('httn_points, httn_tokens').eq('user_id', user.id).maybeSingle(),
@@ -120,6 +123,7 @@ export default function Profile() {
     }
     if (walletRes.data) setWallet(walletRes.data);
     if (postsRes.data) setPosts(postsRes.data);
+    setProfileLoading(false);
   };
 
   const handleSaveProfile = async () => {
@@ -206,6 +210,21 @@ export default function Profile() {
       <VerticalAdBanner {...verticalAds[2]} />
     </div>
   );
+
+  if (profileLoading && !profile) {
+    return (
+      <MainLayout rightSidebar={rightSidebar}>
+        <div className="min-h-screen p-6 flex flex-col items-center justify-center gap-4">
+          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading profile...</p>
+          <div className="w-full max-w-md space-y-3">
+            <Skeleton className="h-24 w-full rounded-lg" />
+            <Skeleton className="h-32 w-full rounded-lg" />
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout rightSidebar={rightSidebar}>

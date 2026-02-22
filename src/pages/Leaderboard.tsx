@@ -15,8 +15,12 @@ import {
   Users,
   BadgeCheck,
   Flame,
-  Star
+  Star,
+  Loader2,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
@@ -45,12 +49,13 @@ export default function Leaderboard() {
   const [engagementLeaders, setEngagementLeaders] = useState<LeaderboardEntry[]>([]);
   const [pointsLeaders, setPointsLeaders] = useState<LeaderboardEntry[]>([]);
   const [userRank, setUserRank] = useState<number | null>(null);
-
-  useEffect(() => {
-    fetchLeaderboards();
-  }, [user]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchLeaderboards = async () => {
+    setError(null);
+    setLoading(true);
+    try {
     // Fetch reputation leaders
     const { data: repData } = await supabase
       .from('profiles')
@@ -106,7 +111,16 @@ export default function Leaderboard() {
         setPointsLeaders(combined);
       }
     }
+  } catch (e) {
+      setError('Failed to load leaderboard.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchLeaderboards();
+  }, [user]);
 
   const tierConfig: Record<string, { label: string; color: string }> = {
     herald: { label: 'Herald', color: 'bg-primary text-primary-foreground' },
@@ -186,9 +200,36 @@ export default function Leaderboard() {
     </div>
   );
 
+  if (loading && reputationLeaders.length === 0) {
+    return (
+      <MainLayout rightSidebar={rightSidebar}>
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+          <div className="space-y-4">
+            {[1, 2, 3, 4, 5].map(i => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
+
   return (
     <MainLayout rightSidebar={rightSidebar}>
       <div className="p-6 space-y-6">
+        {error && (
+          <div className="flex items-center justify-between p-4 rounded-lg bg-destructive/10 border border-destructive/20">
+            <span className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {error}
+            </span>
+            <Button variant="outline" size="sm" onClick={fetchLeaderboards}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Retry
+            </Button>
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

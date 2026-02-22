@@ -105,7 +105,7 @@ export default function Profile() {
     if (!user) return;
     setProfileLoading(true);
     const [profileRes, walletRes, postsRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
+      supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('wallets').select('httn_points, httn_tokens').eq('user_id', user.id).maybeSingle(),
       supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
     ]);
@@ -130,7 +130,7 @@ export default function Profile() {
     if (!user || !profile) return;
 
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({
         display_name: editForm.display_name,
         username: editForm.username,
@@ -168,7 +168,7 @@ export default function Profile() {
 
     const newValue = !profile.is_creator;
     const { error } = await supabase
-      .from('profiles')
+      .from('users')
       .update({ is_creator: newValue })
       .eq('user_id', user.id);
 

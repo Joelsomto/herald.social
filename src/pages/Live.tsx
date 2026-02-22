@@ -121,7 +121,7 @@ export default function Live() {
       if (data && data.length > 0) {
         const userIds = [...new Set(data.map(s => s.user_id))];
         const { data: profiles } = await supabase
-          .from('profiles')
+          .from('users')
           .select('user_id, display_name, username, avatar_url, is_verified')
           .in('user_id', userIds);
         const profileMap = new Map(profiles?.map(p => [p.user_id, p]));

@@ -76,7 +76,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
     // Fetch author profiles separately
     const authorIds = [...new Set(commentsData.map(c => c.author_id))];
     const { data: profiles } = await supabase
-      .from('profiles')
+      .from('users')
       .select('user_id, display_name, username, avatar_url, is_verified, is_creator')
       .in('user_id', authorIds);
 

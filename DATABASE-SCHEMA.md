@@ -9,28 +9,28 @@ Supabase Auth stores users in:
 - **`user`** (singular) - May be available as a view in Supabase dashboard exposing `auth.users`
 - **Access via**: `supabase.auth.getUser()` or `supabase.auth.getSession()`
 
-**Note**: If `SELECT * FROM user` works in your Supabase SQL editor, it's likely a view that exposes `auth.users`. However, in your application code, use the `profiles` table for user data.
+**Note**: If `SELECT * FROM user` works in your Supabase SQL editor, it's likely a view that exposes `auth.users`. In your application code, use the `users` table for app user data (display name, username, etc.).
 
 ### Public User Data Tables
 
 Use these tables instead:
 
-#### 1. `profiles` Table
+#### 1. `users` Table (app user/profile data)
 **This is your main user data table!**
 
 ```sql
--- ✅ CORRECT: Query user profiles
-SELECT * FROM profiles LIMIT 100;
+-- ✅ CORRECT: Query app users
+SELECT * FROM users LIMIT 100;
 
 -- ✅ Get specific user by username
-SELECT * FROM profiles WHERE username = 'john_doe';
+SELECT * FROM users WHERE username = 'john_doe';
 
 -- ✅ Get user with wallet info
 SELECT 
   p.*,
   w.httn_points,
   w.httn_tokens
-FROM profiles p
+FROM users p
 LEFT JOIN wallets w ON p.user_id = w.user_id;
 ```
 
@@ -59,7 +59,7 @@ SELECT
   p.username,
   p.display_name
 FROM wallets w
-JOIN profiles p ON w.user_id = p.user_id
+JOIN users p ON w.user_id = p.user_id
 ORDER BY w.httn_points DESC
 LIMIT 10;
 ```
@@ -84,7 +84,7 @@ SELECT
   p.username,
   p.display_name
 FROM user_roles ur
-JOIN profiles p ON ur.user_id = p.user_id
+JOIN users p ON ur.user_id = p.user_id
 WHERE ur.role = 'admin';
 ```
 
@@ -125,21 +125,21 @@ SELECT
   w.espees,
   ur.role,
   us.*
-FROM profiles p
+FROM users p
 LEFT JOIN wallets w ON p.user_id = w.user_id
 LEFT JOIN user_roles ur ON p.user_id = ur.user_id
 LEFT JOIN user_settings us ON p.user_id = us.user_id
 WHERE p.username = 'john_doe';
 ```
 
-### Get All Users (via profiles)
+### Get All Users (via users table)
 
 ```sql
--- ✅ CORRECT: Use profiles table in application code
-SELECT * FROM profiles ORDER BY created_at DESC LIMIT 100;
+-- ✅ CORRECT: Use users table in application code
+SELECT * FROM users ORDER BY created_at DESC LIMIT 100;
 
 -- ⚠️  NOTE: If `SELECT * FROM user` works in Supabase SQL editor,
---    it's likely a view exposing auth.users, but use profiles in your app
+--    it's likely a view exposing auth.users; use the users table in your app for display name, username, etc.
 SELECT * FROM user LIMIT 100;  -- May work in Supabase dashboard
 SELECT * FROM users LIMIT 100; -- This will likely fail (plural)
 ```
@@ -153,7 +153,7 @@ SELECT
   pr.display_name,
   pr.avatar_url
 FROM posts p
-JOIN profiles pr ON p.author_id = pr.user_id
+JOIN users pr ON p.author_id = pr.user_id
 WHERE pr.username = 'john_doe'
 ORDER BY p.created_at DESC;
 ```
@@ -167,9 +167,9 @@ To access auth user data programmatically:
 const { data: { user } } = await supabase.auth.getUser();
 const { data: { session } } = await supabase.auth.getSession();
 
-// ✅ CORRECT: Query profiles table
+// ✅ CORRECT: Query users table
 const { data: profile } = await supabase
-  .from('profiles')
+  .from('users')
   .select('*')
   .eq('user_id', user.id)
   .single();
@@ -179,14 +179,14 @@ const { data: profile } = await supabase
 
 | What You Need | Use This Table |
 |--------------|----------------|
-| User profile data | `profiles` ✅ |
+| User profile data | `users` ✅ |
 | User wallet/points | `wallets` |
 | User roles | `user_roles` |
 | User settings | `user_settings` |
 | User tasks | `user_tasks` |
 | Auth user info | `supabase.auth.getUser()` |
 | **In Supabase SQL Editor** | `user` (singular view, if available) |
-| **In Application Code** | `profiles` (recommended) |
+| **In Application Code** | `users` (recommended) |
 | **DO NOT USE** | `users` (plural - doesn't exist!) |
 
 ## Migration Reference
@@ -194,7 +194,7 @@ const { data: profile } = await supabase
 When a user signs up:
 1. Supabase creates record in `auth.users` (automatic)
 2. Trigger `handle_new_user()` creates:
-   - Record in `profiles`
+   - Record in `users`
    - Record in `wallets` (with 100 HTTN welcome bonus)
    - Record in `user_roles` (participant role)
    - Record in `user_settings`

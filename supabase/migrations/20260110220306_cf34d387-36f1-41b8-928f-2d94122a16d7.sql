@@ -64,21 +64,33 @@ ALTER TABLE public.followers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_settings ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for user_analytics
+DROP POLICY IF EXISTS "Users can insert own analytics" ON public.user_analytics;
+DROP POLICY IF EXISTS "Users can view own analytics" ON public.user_analytics;
 CREATE POLICY "Users can insert own analytics" ON public.user_analytics FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can view own analytics" ON public.user_analytics FOR SELECT USING (auth.uid() = user_id);
 
 -- RLS policies for ad_campaigns
+DROP POLICY IF EXISTS "Users can view own campaigns" ON public.ad_campaigns;
+DROP POLICY IF EXISTS "Users can create own campaigns" ON public.ad_campaigns;
+DROP POLICY IF EXISTS "Users can update own campaigns" ON public.ad_campaigns;
+DROP POLICY IF EXISTS "Users can delete own campaigns" ON public.ad_campaigns;
 CREATE POLICY "Users can view own campaigns" ON public.ad_campaigns FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can create own campaigns" ON public.ad_campaigns FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own campaigns" ON public.ad_campaigns FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can delete own campaigns" ON public.ad_campaigns FOR DELETE USING (auth.uid() = user_id);
 
 -- RLS policies for followers
+DROP POLICY IF EXISTS "Anyone can view followers" ON public.followers;
+DROP POLICY IF EXISTS "Users can follow others" ON public.followers;
+DROP POLICY IF EXISTS "Users can unfollow" ON public.followers;
 CREATE POLICY "Anyone can view followers" ON public.followers FOR SELECT USING (true);
 CREATE POLICY "Users can follow others" ON public.followers FOR INSERT WITH CHECK (auth.uid() = follower_id);
 CREATE POLICY "Users can unfollow" ON public.followers FOR DELETE USING (auth.uid() = follower_id);
 
 -- RLS policies for user_settings
+DROP POLICY IF EXISTS "Users can view own settings" ON public.user_settings;
+DROP POLICY IF EXISTS "Users can insert own settings" ON public.user_settings;
+DROP POLICY IF EXISTS "Users can update own settings" ON public.user_settings;
 CREATE POLICY "Users can view own settings" ON public.user_settings FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own settings" ON public.user_settings FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can update own settings" ON public.user_settings FOR UPDATE USING (auth.uid() = user_id);

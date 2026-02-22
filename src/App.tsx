@@ -49,26 +49,44 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkOnboarding = async () => {
       if (user && !loading) {
-        // Check user_interests table first
-        const { data: interestsData } = await supabase
+        let completed = false;
+        // Only query user_interests if the table exists (avoid 404 when migrations not run)
+        const { data: interestsData, error: interestsError } = await supabase
           .from('user_interests')
           .select('onboarding_completed')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        // If user_interests doesn't exist or doesn't have onboarding_completed, check profiles
-        if (!interestsData || interestsData.onboarding_completed === null || interestsData.onboarding_completed === false) {
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('onboarding_completed')
-            .eq('user_id', user.id)
-            .maybeSingle();
+        if (!interestsError && interestsData?.onboarding_completed === true) {
+          completed = true;
+        }
 
-          // Show onboarding if not completed in either table
-          if (!profileData?.onboarding_completed && !interestsData?.onboarding_completed) {
-            setShowOnboarding(true);
+        if (!completed) {
+          // Returning user: they have a profile, wallet, or posts (use only columns that exist in base schema)
+          const [profileRes, walletRes, postsRes] = await Promise.all([
+            supabase.from('users').select('user_id, created_at').eq('user_id', user.id).maybeSingle(),
+            supabase.from('wallets').select('id').eq('user_id', user.id).maybeSingle(),
+            supabase.from('posts').select('id').eq('author_id', user.id).limit(1).maybeSingle(),
+          ]);
+
+          const profile = profileRes.data;
+          const hasWallet = walletRes.data != null;
+          const hasPosts = postsRes.data != null;
+          const profileAgeMs = profile?.created_at ? Date.now() - new Date(profile.created_at).getTime() : 0;
+          const isReturningUser =
+            (profile != null && profileAgeMs > 60_000) || hasWallet || hasPosts;
+
+          if (isReturningUser) {
+            completed = true;
+            // Best-effort: mark onboarding complete in user_interests if table exists
+            await supabase.from('user_interests').upsert(
+              { user_id: user.id, interests: [], onboarding_completed: true },
+              { onConflict: 'user_id' }
+            );
           }
         }
+
+        if (!completed) setShowOnboarding(true);
         setCheckingOnboarding(false);
       } else if (!loading) {
         setCheckingOnboarding(false);

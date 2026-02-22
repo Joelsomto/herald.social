@@ -189,7 +189,7 @@ export function useRealTimeNotifications() {
 
     // Get current user's profile for actor info
     const { data: profile } = await supabase
-      .from('profiles')
+      .from('users')
       .select('display_name, avatar_url, is_verified')
       .eq('user_id', user.id)
       .maybeSingle();

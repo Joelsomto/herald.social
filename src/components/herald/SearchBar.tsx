@@ -49,7 +49,7 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
       try {
         const [profilesRes, postsRes] = await Promise.all([
           supabase
-            .from('profiles')
+            .from('users')
             .select('user_id, display_name, username, avatar_url, is_verified')
             .or(`display_name.ilike.%${query}%,username.ilike.%${query}%`)
             .limit(5),

@@ -28,7 +28,7 @@ FOR SELECT
 USING (bucket_id = 'avatars');
 
 -- Create notifications table for real-time notifications
-CREATE TABLE public.notifications (
+CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL,
   type TEXT NOT NULL,
@@ -48,6 +48,10 @@ CREATE TABLE public.notifications (
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for notifications
+DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Users can update own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Users can delete own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Allow notification inserts" ON public.notifications;
 CREATE POLICY "Users can view own notifications"
 ON public.notifications
 FOR SELECT
@@ -69,11 +73,19 @@ ON public.notifications
 FOR INSERT
 WITH CHECK (true);
 
--- Enable realtime for notifications
-ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+-- Enable realtime for notifications (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+END $$;
 
 -- Create transactions table for wallet history
-CREATE TABLE public.wallet_transactions (
+CREATE TABLE IF NOT EXISTS public.wallet_transactions (
   id UUID NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID NOT NULL,
   type TEXT NOT NULL,
@@ -88,6 +100,8 @@ CREATE TABLE public.wallet_transactions (
 ALTER TABLE public.wallet_transactions ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies for transactions
+DROP POLICY IF EXISTS "Users can view own transactions" ON public.wallet_transactions;
+DROP POLICY IF EXISTS "Users can insert own transactions" ON public.wallet_transactions;
 CREATE POLICY "Users can view own transactions"
 ON public.wallet_transactions
 FOR SELECT

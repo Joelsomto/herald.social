@@ -30,7 +30,7 @@ SELECT
 FROM auth.users
 LIMIT 10;
 
--- 4. Check profiles table structure
+-- 4. Check users table structure (app user/profile data; auth is in auth.users)
 SELECT 
   column_name,
   data_type,
@@ -38,11 +38,11 @@ SELECT
   column_default
 FROM information_schema.columns
 WHERE table_schema = 'public' 
-  AND table_name = 'profiles'
+  AND table_name = 'users'
 ORDER BY ordinal_position;
 
--- 5. Check if profiles table exists and is accessible
-SELECT COUNT(*) as profile_count FROM profiles;
+-- 5. Check if users table exists and is accessible
+SELECT COUNT(*) as user_count FROM users;
 
 -- 6. Check wallets table
 SELECT COUNT(*) as wallet_count FROM wallets;
@@ -64,15 +64,15 @@ FROM information_schema.tables
 WHERE table_schema = 'public'
 ORDER BY table_name;
 
--- 11. Check if RLS is enabled on profiles
+-- 11. Check if RLS is enabled on users
 SELECT 
   tablename,
   rowsecurity
 FROM pg_tables
 WHERE schemaname = 'public' 
-  AND tablename = 'profiles';
+  AND tablename = 'users';
 
--- 12. Check RLS policies on profiles
+-- 12. Check RLS policies on users
 SELECT 
   schemaname,
   tablename,
@@ -83,4 +83,4 @@ SELECT
   qual,
   with_check
 FROM pg_policies
-WHERE tablename = 'profiles';
+WHERE tablename = 'users';

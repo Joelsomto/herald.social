@@ -87,7 +87,7 @@ export default function Explore() {
     try {
       const [postsRes, creatorsRes, reelsRes, walletRes] = await Promise.all([
         supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').order('likes_count', { ascending: false }).limit(10),
-        supabase.from('profiles').select('user_id, display_name, username, avatar_url, tier, reputation').order('reputation', { ascending: false }).limit(10),
+        supabase.from('users').select('user_id, display_name, username, avatar_url, tier, reputation').order('reputation', { ascending: false }).limit(10),
         supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').eq('media_type', 'reel').order('created_at', { ascending: false }).limit(12),
         user ? supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
       ]);
@@ -97,7 +97,7 @@ export default function Explore() {
       if (reelsRes.data) reelsRes.data.forEach(p => p.author_id && authorIds.add(p.author_id));
       const ids = Array.from(authorIds);
       const { data: profilesData } = ids.length
-        ? await supabase.from('profiles').select('user_id, display_name, username, avatar_url, tier, reputation').in('user_id', ids)
+        ? await supabase.from('users').select('user_id, display_name, username, avatar_url, tier, reputation').in('user_id', ids)
         : { data: [] };
       const profileMap = new Map((profilesData || []).map(p => [p.user_id, p as Creator]));
 

@@ -116,7 +116,7 @@ export function MessagesPopup({ isOpen, onClose }: MessagesPopupProps) {
     if (userIds.length === 0) return;
 
     const { data: profiles } = await supabase
-      .from('profiles')
+      .from('users')
       .select('user_id, display_name, username, avatar_url')
       .in('user_id', userIds);
 
@@ -191,7 +191,7 @@ export function MessagesPopup({ isOpen, onClose }: MessagesPopupProps) {
     }
 
     const { data } = await supabase
-      .from('profiles')
+      .from('users')
       .select('user_id, display_name, username, avatar_url')
       .or(`display_name.ilike.%${query}%,username.ilike.%${query}%`)
       .neq('user_id', user?.id)

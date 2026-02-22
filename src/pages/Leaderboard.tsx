@@ -58,7 +58,7 @@ export default function Leaderboard() {
     try {
     // Fetch reputation leaders
     const { data: repData } = await supabase
-      .from('profiles')
+      .from('users')
       .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
       .order('reputation', { ascending: false })
       .limit(50);
@@ -73,7 +73,7 @@ export default function Leaderboard() {
 
     // Fetch engagement leaders
     const { data: engData } = await supabase
-      .from('profiles')
+      .from('users')
       .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
       .order('total_engagement', { ascending: false })
       .limit(50);
@@ -96,7 +96,7 @@ export default function Leaderboard() {
       // Get profiles for these users
       const userIds = pointsData.map(w => w.user_id);
       const { data: profilesData } = await supabase
-        .from('profiles')
+        .from('users')
         .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
         .in('user_id', userIds);
 

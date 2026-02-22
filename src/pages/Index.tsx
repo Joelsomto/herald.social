@@ -82,7 +82,7 @@ type FeedPost = {
   replies_count: number;
   reposts_count: number;
   httn_earned?: number; // placeholder – can come from join / calculation later
-  profiles: {
+  users: {
     username: string;
     full_name: string | null;
     verified: boolean;
@@ -203,7 +203,7 @@ export default function Index() {
             likes_count,
             replies_count,
             reposts_count,
-            profiles!inner (
+            users!inner (
               username,
               full_name,
               verified,
@@ -454,16 +454,16 @@ export default function Index() {
                     <div className="flex gap-3">
                       <Avatar className="w-10 h-10">
                         <AvatarFallback>
-                          {post.profiles.username?.[0]?.toUpperCase() ?? '?'}
+                          {post.users.username?.[0]?.toUpperCase() ?? '?'}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1 flex-wrap">
-                          <span className="font-semibold">{post.profiles.full_name || post.profiles.username}</span>
-                          {post.profiles.verified && (
+                          <span className="font-semibold">{post.users.full_name || post.users.username}</span>
+                          {post.users.verified && (
                             <BadgeCheck className="w-4 h-4 text-primary fill-primary/20" />
                           )}
-                          <span className="text-muted-foreground text-sm">@{post.profiles.username}</span>
+                          <span className="text-muted-foreground text-sm">@{post.users.username}</span>
                           <span className="text-muted-foreground text-sm">·</span>
                           <span className="text-muted-foreground text-sm">
                             {new Date(post.created_at).toLocaleString([], {

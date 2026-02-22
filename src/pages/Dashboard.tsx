@@ -79,7 +79,7 @@ export default function Dashboard() {
     try {
       const [walletRes, profileRes, earningsRes, postsRes] = await Promise.all([
         supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
-        supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('earnings_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(30),
         supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
       ]);

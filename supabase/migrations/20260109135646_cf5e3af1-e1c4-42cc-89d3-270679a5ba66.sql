@@ -1,8 +1,14 @@
--- Create app_role enum
-CREATE TYPE public.app_role AS ENUM ('admin', 'moderator', 'creator', 'participant');
+-- Create app_role enum (idempotent for re-runs)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'app_role') THEN
+    CREATE TYPE public.app_role AS ENUM ('admin', 'moderator', 'creator', 'participant');
+  END IF;
+END
+$$;
 
 -- Create profiles table
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
   username TEXT UNIQUE,
@@ -16,7 +22,7 @@ CREATE TABLE public.profiles (
 );
 
 -- Create user_roles table
-CREATE TABLE public.user_roles (
+CREATE TABLE IF NOT EXISTS public.user_roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   role app_role NOT NULL,
@@ -24,7 +30,7 @@ CREATE TABLE public.user_roles (
 );
 
 -- Create wallets table
-CREATE TABLE public.wallets (
+CREATE TABLE IF NOT EXISTS public.wallets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
   httn_points INTEGER DEFAULT 0 NOT NULL,
@@ -36,7 +42,7 @@ CREATE TABLE public.wallets (
 );
 
 -- Create posts table
-CREATE TABLE public.posts (
+CREATE TABLE IF NOT EXISTS public.posts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   author_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   content TEXT NOT NULL,
@@ -50,7 +56,7 @@ CREATE TABLE public.posts (
 );
 
 -- Create post_interactions table
-CREATE TABLE public.post_interactions (
+CREATE TABLE IF NOT EXISTS public.post_interactions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   post_id UUID REFERENCES public.posts(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -61,7 +67,7 @@ CREATE TABLE public.post_interactions (
 );
 
 -- Create tasks table for user missions
-CREATE TABLE public.user_tasks (
+CREATE TABLE IF NOT EXISTS public.user_tasks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   task_type TEXT NOT NULL CHECK (task_type IN ('daily', 'weekly', 'campaign')),
@@ -76,7 +82,7 @@ CREATE TABLE public.user_tasks (
 );
 
 -- Create earnings_history for analytics
-CREATE TABLE public.earnings_history (
+CREATE TABLE IF NOT EXISTS public.earnings_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   amount INTEGER NOT NULL,
@@ -94,33 +100,49 @@ ALTER TABLE public.user_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.earnings_history ENABLE ROW LEVEL SECURITY;
 
 -- Profiles policies
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Users can update own profile" ON public.profiles FOR UPDATE USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- User roles policies
+DROP POLICY IF EXISTS "Users can view own roles" ON public.user_roles;
 CREATE POLICY "Users can view own roles" ON public.user_roles FOR SELECT USING (auth.uid() = user_id);
 
 -- Wallets policies
+DROP POLICY IF EXISTS "Users can view own wallet" ON public.wallets;
+DROP POLICY IF EXISTS "Users can update own wallet" ON public.wallets;
 CREATE POLICY "Users can view own wallet" ON public.wallets FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can update own wallet" ON public.wallets FOR UPDATE USING (auth.uid() = user_id);
 
 -- Posts policies
+DROP POLICY IF EXISTS "Posts are viewable by everyone" ON public.posts;
+DROP POLICY IF EXISTS "Users can create own posts" ON public.posts;
+DROP POLICY IF EXISTS "Users can update own posts" ON public.posts;
+DROP POLICY IF EXISTS "Users can delete own posts" ON public.posts;
 CREATE POLICY "Posts are viewable by everyone" ON public.posts FOR SELECT USING (true);
 CREATE POLICY "Users can create own posts" ON public.posts FOR INSERT WITH CHECK (auth.uid() = author_id);
 CREATE POLICY "Users can update own posts" ON public.posts FOR UPDATE USING (auth.uid() = author_id);
 CREATE POLICY "Users can delete own posts" ON public.posts FOR DELETE USING (auth.uid() = author_id);
 
 -- Post interactions policies
+DROP POLICY IF EXISTS "Interactions are viewable by everyone" ON public.post_interactions;
+DROP POLICY IF EXISTS "Users can create interactions" ON public.post_interactions;
+DROP POLICY IF EXISTS "Users can delete own interactions" ON public.post_interactions;
 CREATE POLICY "Interactions are viewable by everyone" ON public.post_interactions FOR SELECT USING (true);
 CREATE POLICY "Users can create interactions" ON public.post_interactions FOR INSERT WITH CHECK (auth.uid() = user_id);
 CREATE POLICY "Users can delete own interactions" ON public.post_interactions FOR DELETE USING (auth.uid() = user_id);
 
 -- User tasks policies
+DROP POLICY IF EXISTS "Users can view own tasks" ON public.user_tasks;
+DROP POLICY IF EXISTS "Users can update own tasks" ON public.user_tasks;
 CREATE POLICY "Users can view own tasks" ON public.user_tasks FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can update own tasks" ON public.user_tasks FOR UPDATE USING (auth.uid() = user_id);
 
 -- Earnings history policies
+DROP POLICY IF EXISTS "Users can view own earnings" ON public.earnings_history;
 CREATE POLICY "Users can view own earnings" ON public.earnings_history FOR SELECT USING (auth.uid() = user_id);
 
 -- Security definer function for role checking
@@ -169,6 +191,7 @@ END;
 $$;
 
 -- Trigger for new user signup
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
@@ -183,5 +206,7 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public;
 
 -- Timestamp triggers
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON public.profiles;
+DROP TRIGGER IF EXISTS update_wallets_updated_at ON public.wallets;
 CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 CREATE TRIGGER update_wallets_updated_at BEFORE UPDATE ON public.wallets FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

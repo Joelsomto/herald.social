@@ -170,7 +170,7 @@ export default function Wallet() {
       // Find recipient by username
       const username = sendUsername.replace('@', '');
       const { data: recipientProfile, error: findError } = await supabase
-        .from('profiles')
+        .from('users')
         .select('user_id, display_name')
         .eq('username', username)
         .maybeSingle();
@@ -217,7 +217,7 @@ export default function Wallet() {
 
       // Create notification for recipient
       const { data: senderProfile } = await supabase
-        .from('profiles')
+        .from('users')
         .select('display_name, avatar_url, is_verified')
         .eq('user_id', user.id)
         .maybeSingle();

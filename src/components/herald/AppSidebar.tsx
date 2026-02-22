@@ -51,7 +51,7 @@ export function AppSidebar() {
   const fetchProfile = async () => {
     if (!user) return;
     const { data } = await supabase
-      .from('profiles')
+      .from('users')
       .select('display_name, username, avatar_url')
       .eq('user_id', user.id)
       .maybeSingle();

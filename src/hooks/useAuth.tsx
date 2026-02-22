@@ -125,9 +125,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Success toast is now handled in onAuthStateChange → cleaner
     } catch (error: any) {
+      const msg = error?.message || '';
+      const description =
+        msg.includes('Invalid login') || msg.includes('invalid') || error?.status === 400
+          ? 'Wrong email or password. If you just signed up, check your email to confirm your account.'
+          : msg || 'Something went wrong. Please try again.';
       toast({
         title: 'Sign In Failed',
-        description: error?.message || 'Invalid credentials. Please check and try again.',
+        description,
         variant: 'destructive',
       });
       throw error;

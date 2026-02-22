@@ -57,11 +57,11 @@ export function FollowButton({ targetUserId, onFollowChange, variant = 'outline'
       if (!error) {
         // Decrement counts
         await Promise.all([
-          supabase.from('profiles').update({ 
-            following_count: Math.max(0, (await supabase.from('profiles').select('following_count').eq('user_id', user.id).single()).data?.following_count || 1 - 1)
+          supabase.from('users').update({ 
+            following_count: Math.max(0, (await supabase.from('users').select('following_count').eq('user_id', user.id).single()).data?.following_count || 1 - 1)
           }).eq('user_id', user.id),
-          supabase.from('profiles').update({
-            followers_count: Math.max(0, (await supabase.from('profiles').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 1 - 1)
+          supabase.from('users').update({
+            followers_count: Math.max(0, (await supabase.from('users').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 1 - 1)
           }).eq('user_id', targetUserId),
         ]);
         
@@ -78,11 +78,11 @@ export function FollowButton({ targetUserId, onFollowChange, variant = 'outline'
       if (!error) {
         // Increment counts
         await Promise.all([
-          supabase.from('profiles').update({ 
-            following_count: ((await supabase.from('profiles').select('following_count').eq('user_id', user.id).single()).data?.following_count || 0) + 1
+          supabase.from('users').update({ 
+            following_count: ((await supabase.from('users').select('following_count').eq('user_id', user.id).single()).data?.following_count || 0) + 1
           }).eq('user_id', user.id),
-          supabase.from('profiles').update({
-            followers_count: ((await supabase.from('profiles').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 0) + 1
+          supabase.from('users').update({
+            followers_count: ((await supabase.from('users').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 0) + 1
           }).eq('user_id', targetUserId),
         ]);
 

@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Sparkles, ArrowRight, Check, BadgeCheck, User, Church, Briefcase } from 'lucide-react';
+import { Sparkles, ArrowRight, Check, BadgeCheck, User, Church, Briefcase, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { motion, AnimatePresence } from 'framer-motion';
+
+interface SuggestedUser {
+  user_id: string;
+  display_name: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  is_verified: boolean | null;
+  bio: string | null;
+}
 
 interface OnboardingFlowProps {
   onComplete: () => void;
@@ -47,21 +56,31 @@ const INTERESTS = [
   { id: 'art', label: '🎨 Art & Design', icon: '🎨' },
 ];
 
-const SUGGESTED_USERS = [
-  { id: 'herald', name: 'Herald Official', username: 'herald', verified: true, avatar: null, bio: 'Official Herald Social account' },
-  { id: 'sarah', name: 'Sarah Chen', username: 'sarahcreates', verified: true, avatar: null, bio: 'Creator & Web3 enthusiast' },
-  { id: 'alex', name: 'Alex Rivera', username: 'alexr', verified: true, avatar: null, bio: 'Tech blogger & investor' },
-  { id: 'pastor', name: 'Pastor Chris', username: 'pastorchris', verified: true, avatar: null, bio: 'Inspiring millions worldwide' },
-  { id: 'maya', name: 'Maya Johnson', username: 'mayaj', verified: false, avatar: null, bio: 'Lifestyle & wellness coach' },
-];
-
 export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
   const { user } = useAuth();
   const [step, setStep] = useState(1);
   const [selectedAccountType, setSelectedAccountType] = useState<string>('normal');
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [followedUsers, setFollowedUsers] = useState<string[]>([]);
+  const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
+  const [suggestedUsersLoading, setSuggestedUsersLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!user || step !== 3) return;
+    const fetchSuggested = async () => {
+      setSuggestedUsersLoading(true);
+      const { data } = await supabase
+        .from('users')
+        .select('user_id, display_name, username, avatar_url, is_verified, bio')
+        .neq('user_id', user.id)
+        .order('reputation', { ascending: false, nullsFirst: false })
+        .limit(8);
+      if (data?.length) setSuggestedUsers(data as SuggestedUser[]);
+      setSuggestedUsersLoading(false);
+    };
+    fetchSuggested();
+  }, [user, step]);
 
   const toggleInterest = (id: string) => {
     setSelectedInterests(prev => 
@@ -71,43 +90,63 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     );
   };
 
-  const toggleFollow = (id: string) => {
-    setFollowedUsers(prev => 
-      prev.includes(id) ? prev.filter(u => u !== id) : [...prev, id]
+  const toggleFollow = (userId: string) => {
+    setFollowedUsers(prev =>
+      prev.includes(userId) ? prev.filter((u) => u !== userId) : [...prev, userId]
     );
   };
 
   const handleComplete = async () => {
     if (!user) return;
-    
+
     setIsLoading(true);
-    
-    // Save account type to profile
-    await supabase.from('profiles').update({
-      account_type: selectedAccountType,
-    }).eq('user_id', user.id);
 
-    // Save interests and mark onboarding as completed
-    await supabase.from('user_interests').upsert({
-      user_id: user.id,
-      interests: selectedInterests,
-      onboarding_completed: true,
-    }, {
-      onConflict: 'user_id'
-    });
+    try {
+      // 1. Save account type to profile
+      await supabase.from('users').update({
+        account_type: selectedAccountType,
+      }).eq('user_id', user.id);
 
-    setIsLoading(false);
-    onComplete();
+      // 2. Save interests and mark onboarding as completed (so returning users don't see onboarding again)
+      const { error: interestsError } = await supabase.from('user_interests').upsert({
+        user_id: user.id,
+        interests: selectedInterests,
+        onboarding_completed: true,
+      }, {
+        onConflict: 'user_id',
+      });
+      if (interestsError) throw interestsError;
+
+      // 3. Persist "people to follow" into followers table (followedUsers are user_ids from DB)
+      if (followedUsers.length > 0) {
+        await supabase.from('followers').insert(
+          followedUsers.map((following_id) => ({
+            follower_id: user.id,
+            following_id,
+          }))
+        );
+      }
+    } catch (e) {
+      console.error('Onboarding save error:', e);
+      // Still mark onboarding complete so user is not stuck
+      await supabase.from('user_interests').upsert({
+        user_id: user.id,
+        interests: selectedInterests,
+        onboarding_completed: true,
+      }, { onConflict: 'user_id' });
+    } finally {
+      setIsLoading(false);
+      onComplete();
+    }
   };
 
   const handleSkip = async () => {
     if (!user) return;
-    
+
     setIsLoading(true);
-    
+
     try {
-      // Mark onboarding as completed even when skipped
-      // Use upsert to handle both insert and update cases
+      // Mark onboarding as completed so returning users never see it again
       const { error: interestsError } = await supabase
         .from('user_interests')
         .upsert({
@@ -115,30 +154,28 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
           interests: selectedInterests.length > 0 ? selectedInterests : [],
           onboarding_completed: true,
         }, {
-          onConflict: 'user_id'
+          onConflict: 'user_id',
         });
 
-      if (interestsError) {
-        console.error('Error saving skipped onboarding:', interestsError);
-        // If table doesn't exist, try creating a record in profiles instead
-        // Some setups might not have user_interests table
-        await supabase.from('profiles').update({
-          onboarding_completed: true,
-        }).eq('user_id', user.id);
-      }
+      if (interestsError) throw interestsError;
 
       // Save account type (defaults to 'normal' if not changed)
-      await supabase.from('profiles').update({
+      await supabase.from('users').update({
         account_type: selectedAccountType || 'normal',
       }).eq('user_id', user.id);
 
-      setIsLoading(false);
       onComplete();
-    } catch (error) {
-      console.error('Error skipping onboarding:', error);
-      setIsLoading(false);
-      // Still complete onboarding even if save fails
+    } catch (e) {
+      console.error('Error saving skipped onboarding:', e);
+      // Still complete so user is not stuck
+      await supabase.from('user_interests').upsert({
+        user_id: user.id,
+        interests: [],
+        onboarding_completed: true,
+      }, { onConflict: 'user_id' });
       onComplete();
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -266,45 +303,61 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
                 </div>
 
                 <div className="space-y-3 py-4 max-h-[300px] overflow-y-auto">
-                  {SUGGESTED_USERS.map((suggestedUser) => (
-                    <div 
-                      key={suggestedUser.id}
-                      className="flex items-center justify-between p-3 rounded-xl bg-secondary/50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src={suggestedUser.avatar || undefined} />
-                          <AvatarFallback className="bg-primary/20 text-primary font-display font-bold">
-                            {suggestedUser.name[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-semibold text-foreground flex items-center gap-1">
-                            {suggestedUser.name}
-                            {suggestedUser.verified && (
-                              <BadgeCheck className="w-4 h-4 text-primary fill-primary/20" />
-                            )}
-                          </p>
-                          <p className="text-xs text-muted-foreground">@{suggestedUser.username}</p>
-                        </div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant={followedUsers.includes(suggestedUser.id) ? 'outline' : 'gold'}
-                        onClick={() => toggleFollow(suggestedUser.id)}
-                        className="rounded-full"
-                      >
-                        {followedUsers.includes(suggestedUser.id) ? (
-                          <>
-                            <Check className="w-4 h-4 mr-1" />
-                            Following
-                          </>
-                        ) : (
-                          'Follow'
-                        )}
-                      </Button>
+                  {suggestedUsersLoading ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-muted-foreground">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span className="text-sm">Loading creators…</span>
                     </div>
-                  ))}
+                  ) : suggestedUsers.length === 0 ? (
+                    <p className="text-center text-sm text-muted-foreground py-6">
+                      No suggested creators right now. You can follow people from Explore later.
+                    </p>
+                  ) : (
+                    suggestedUsers.map((suggestedUser) => {
+                      const name = suggestedUser.display_name || suggestedUser.username || 'Unknown';
+                      return (
+                        <div
+                          key={suggestedUser.user_id}
+                          className="flex items-center justify-between p-3 rounded-xl bg-secondary/50"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-12 h-12">
+                              <AvatarImage src={suggestedUser.avatar_url || undefined} />
+                              <AvatarFallback className="bg-primary/20 text-primary font-display font-bold">
+                                {name[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-semibold text-foreground flex items-center gap-1">
+                                {name}
+                                {suggestedUser.is_verified && (
+                                  <BadgeCheck className="w-4 h-4 text-primary fill-primary/20" />
+                                )}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                @{suggestedUser.username || 'unknown'}
+                              </p>
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={followedUsers.includes(suggestedUser.user_id) ? 'outline' : 'gold'}
+                            onClick={() => toggleFollow(suggestedUser.user_id)}
+                            className="rounded-full"
+                          >
+                            {followedUsers.includes(suggestedUser.user_id) ? (
+                              <>
+                                <Check className="w-4 h-4 mr-1" />
+                                Following
+                              </>
+                            ) : (
+                              'Follow'
+                            )}
+                          </Button>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </motion.div>
             )}

@@ -100,7 +100,7 @@ export default function Admin() {
     setLoading(true);
     try {
       const [usersRes, postsRes, walletsRes] = await Promise.all([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(50),
+        supabase.from('users').select('*').order('created_at', { ascending: false }).limit(50),
         supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(50),
         supabase.from('wallets').select('id'),
       ]);
@@ -124,7 +124,7 @@ export default function Admin() {
   };
 
   const handleVerifyUser = async (userId: string) => {
-    await supabase.from('profiles').update({ is_verified: true }).eq('user_id', userId);
+    await supabase.from('users').update({ is_verified: true }).eq('user_id', userId);
     toast({ title: 'User Verified', description: 'User has been verified successfully' });
     fetchDashboardData();
   };

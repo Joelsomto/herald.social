@@ -80,7 +80,7 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
 
       // Update profile with new avatar URL
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update({ avatar_url: avatarUrl })
         .eq('user_id', userId);
 

@@ -631,7 +631,7 @@ export type Database = {
         }
         Relationships: []
       }
-      profiles: {
+      users: {
         Row: {
           account_type: string | null
           avatar_url: string | null

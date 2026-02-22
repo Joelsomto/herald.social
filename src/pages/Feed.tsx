@@ -211,17 +211,29 @@ export default function Feed() {
     setIsLoadingMore(true);
     const lastPost = posts[posts.length - 1];
     
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('posts')
       .select(`
         *,
-        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
+        author:users!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
       `)
       .lt('created_at', lastPost.created_at)
       .order('created_at', { ascending: false })
       .limit(10);
 
-    if (data) {
+    if (error) {
+      const { data: plainPosts } = await supabase.from('posts').select('*').lt('created_at', lastPost.created_at).order('created_at', { ascending: false }).limit(10);
+      if (plainPosts?.length) {
+        const authorIds = [...new Set(plainPosts.map(p => p.author_id))];
+        const { data: users } = await supabase.from('users').select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified').in('user_id', authorIds);
+        const userMap = new Map((users || []).map(u => [u.user_id, u]));
+        setPosts(prev => [...prev, ...plainPosts.map(p => ({
+          ...p,
+          author: (userMap.get(p.author_id) as Profile) ?? { display_name: 'Unknown', username: '', tier: 'participant', reputation: 0, avatar_url: null, is_creator: false, is_verified: false },
+        }))]);
+      }
+      if (!plainPosts || plainPosts.length < 10) setHasMore(false);
+    } else if (data) {
       if (data.length < 10) setHasMore(false);
       setPosts(prev => [...prev, ...data.map(p => ({ ...p, author: p.author as unknown as Profile }))]);
     }
@@ -238,7 +250,7 @@ export default function Feed() {
 
     const [walletRes, profileRes, tasksRes] = await Promise.all([
       supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle(),
+      supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
       supabase.from('user_tasks').select('*').eq('user_id', user.id).eq('completed', false),
     ]);
 
@@ -248,27 +260,52 @@ export default function Feed() {
   };
 
   const fetchPosts = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('posts')
       .select(`
         *,
-        author:profiles!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
+        author:users!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
       `)
       .order('created_at', { ascending: false })
       .limit(20);
 
+    if (error) {
+      const { data: plainPosts } = await supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(20);
+      if (plainPosts?.length) {
+        const authorIds = [...new Set(plainPosts.map(p => p.author_id))];
+        const { data: users } = await supabase.from('users').select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified').in('user_id', authorIds);
+        const userMap = new Map((users || []).map(u => [u.user_id, u]));
+        setPosts(plainPosts.map(p => ({
+          ...p,
+          author: (userMap.get(p.author_id) as Profile) ?? {
+            display_name: 'Unknown',
+            username: '',
+            tier: 'participant',
+            reputation: 0,
+            avatar_url: null,
+            is_creator: false,
+            is_verified: false,
+          },
+        })));
+      } else setPosts([]);
+      return;
+    }
     if (data) {
       setPosts(data.map(p => ({ ...p, author: p.author as unknown as Profile })));
     }
   };
 
   const fetchTopCreators = async () => {
-    const { data } = await supabase
-      .from('profiles')
+    const { data, error } = await supabase
+      .from('users')
       .select('*')
       .order('reputation', { ascending: false })
       .limit(5);
 
+    if (error) {
+      if (data === null) setTopCreators([]);
+      return;
+    }
     if (data) setTopCreators(data);
   };
 

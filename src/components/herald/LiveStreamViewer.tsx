@@ -95,7 +95,7 @@ export function LiveStreamViewer({
         // Fetch profiles for messages
         const userIds = [...new Set(chatData.map(m => m.user_id))];
         const { data: profiles } = await supabase
-          .from('profiles')
+          .from('users')
           .select('user_id, display_name, username, avatar_url, is_verified')
           .in('user_id', userIds);
 
@@ -145,7 +145,7 @@ export function LiveStreamViewer({
           const newMsg = payload.new as ChatMessage;
           // Fetch profile
           const { data: profile } = await supabase
-            .from('profiles')
+            .from('users')
             .select('user_id, display_name, username, avatar_url, is_verified')
             .eq('user_id', newMsg.user_id)
             .single();
@@ -162,7 +162,7 @@ export function LiveStreamViewer({
         async (payload) => {
           const newDonation = payload.new as Donation;
           const { data: profile } = await supabase
-            .from('profiles')
+            .from('users')
             .select('user_id, display_name, avatar_url')
             .eq('user_id', newDonation.donor_id)
             .single();

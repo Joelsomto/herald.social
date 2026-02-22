@@ -31,21 +31,21 @@ async function checkDatabase() {
   console.log('🔍 Checking database...\n');
   console.log('Supabase URL:', supabaseUrl.substring(0, 30) + '...\n');
 
-  // Check profiles
-  console.log('1️⃣ Checking profiles table...');
+  // Check users (app user data; auth is auth.users)
+  console.log('1️⃣ Checking users table...');
   const { data: profiles, error: profilesError } = await supabase
-    .from('profiles')
+    .from('users')
     .select('*')
     .limit(10);
 
   if (profilesError) {
-    console.error('❌ Error fetching profiles:', profilesError.message);
+    console.error('❌ Error fetching users:', profilesError.message);
     console.error('   Code:', profilesError.code);
     console.error('   Details:', profilesError.details);
   } else {
-    console.log(`✅ Found ${profiles?.length || 0} profiles`);
+    console.log(`✅ Found ${profiles?.length || 0} users`);
     if (profiles && profiles.length > 0) {
-      console.log('\n📋 Profiles:');
+      console.log('\n📋 Users:');
       profiles.forEach((p, i) => {
         console.log(`  ${i + 1}. Username: ${p.username || 'N/A'}`);
         console.log(`     Display Name: ${p.display_name || 'N/A'}`);
@@ -55,7 +55,7 @@ async function checkDatabase() {
         console.log('');
       });
     } else {
-      console.log('⚠️  No profiles found!');
+      console.log('⚠️  No users found!');
     }
   }
 
@@ -110,15 +110,15 @@ async function checkDatabase() {
     console.log(`   User ID: ${session.user.id}`);
     console.log(`   Email: ${session.user.email}`);
     
-    // Check if this user has a profile
+    // Check if this user has an app user row
     const { data: userProfile, error: profileError } = await supabase
-      .from('profiles')
+      .from('users')
       .select('*')
       .eq('user_id', session.user.id)
       .single();
     
     if (profileError) {
-      console.log(`   ⚠️  Error checking profile: ${profileError.message}`);
+      console.log(`   ⚠️  Error checking user row: ${profileError.message}`);
     } else if (userProfile) {
       console.log(`   ✅ Profile exists: ${userProfile.username || 'N/A'}`);
     } else {

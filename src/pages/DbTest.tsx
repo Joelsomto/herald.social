@@ -32,7 +32,7 @@ export default function DbTest() {
         // Test 1: Basic connection
         addResult('\n1. Testing basic connection...');
         const { error: healthError } = await supabase
-          .from('profiles')
+          .from('users')
           .select('count')
           .limit(1);
         
@@ -44,19 +44,19 @@ export default function DbTest() {
           addResult('Basic connection successful');
         }
 
-        // Test 2: Fetch profiles
-        addResult('\n2. Testing profiles table...');
+        // Test 2: Fetch users
+        addResult('\n2. Testing users table...');
         const { data: profiles, error: profilesError } = await supabase
-          .from('profiles')
+          .from('users')
           .select('*')
           .limit(5);
         
         if (profilesError) {
-          addResult(`Profiles query failed: ${profilesError.message}`, true);
+          addResult(`Users query failed: ${profilesError.message}`, true);
           addResult(`Error code: ${profilesError.code || 'N/A'}`, true);
           addResult(`Error hint: ${profilesError.hint || 'N/A'}`, true);
         } else {
-          addResult(`Profiles query successful. Found ${profiles?.length || 0} profiles`);
+          addResult(`Users query successful. Found ${profiles?.length || 0} users`);
         }
 
         // Test 3: Fetch posts
@@ -88,8 +88,8 @@ export default function DbTest() {
         addResult('ℹ️  User Table Information:');
         addResult('   - Supabase Auth uses: auth.users (in auth schema)');
         addResult('   - "user" (singular) view may exist in Supabase dashboard');
-        addResult('   - "users" (plural) table does NOT exist');
-        addResult('   - Use profiles table in app: SELECT * FROM profiles');
+        addResult('   - App user data: public.users (display_name, username, etc.)');
+        addResult('   - Use users table in app: SELECT * FROM users');
         addResult('   - To get auth users: supabase.auth.getUser()');
         
         // Test if user view exists
@@ -109,15 +109,15 @@ export default function DbTest() {
         // Test 7: Show correct way to query user data
         addResult('\n7. Querying user data correctly...');
         const { data: userProfiles, error: userProfilesError } = await supabase
-          .from('profiles')
+          .from('users')
           .select('user_id, username, display_name, created_at')
           .limit(5);
         
         if (userProfilesError) {
-          addResult(`Error querying profiles: ${userProfilesError.message}`, true);
+          addResult(`Error querying users: ${userProfilesError.message}`, true);
         } else {
-          addResult(`✅ Found ${userProfiles?.length || 0} profiles`);
-          addResult('   Use: SELECT * FROM profiles (not users)');
+          addResult(`✅ Found ${userProfiles?.length || 0} users`);
+          addResult('   Use: SELECT * FROM users');
         }
 
       } catch (error: any) {

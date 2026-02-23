@@ -19,6 +19,8 @@ const DEMO_VIDEOS = [
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
@@ -55,7 +57,7 @@ export default function Auth() {
     e.preventDefault();
     setLoading(true);
     try {
-      await signUp(email, password);
+      await signUp(email, password, fullName, username);
       navigate('/feed');
     } catch (error) {
       // Error handled in useAuth
@@ -191,6 +193,30 @@ export default function Auth() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleSignUp} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-full-name">Full name</Label>
+                      <Input
+                        id="signup-full-name"
+                        type="text"
+                        placeholder="Jane Doe"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        required
+                        className="bg-input"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-username">Username</Label>
+                      <Input
+                        id="signup-username"
+                        type="text"
+                        placeholder="janedoe"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        required
+                        className="bg-input"
+                      />
+                    </div>
                     <div className="space-y-2">
                       <Label htmlFor="signup-email">Email</Label>
                       <Input

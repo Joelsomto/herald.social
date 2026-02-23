@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, username: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -39,10 +39,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Optional: reload profile data or trigger side-effects here
         if (event === 'SIGNED_IN') {
-          toast({
-            title: 'Signed in successfully',
-            description: `Welcome${session?.user?.email ? `, ${session.user.email.split('@')[0]}` : ''}!`,
-          });
+          // Verify user profile exists in public.users table
+          if (session?.user?.id) {
+            const { data: userProfile, error: profileError } = await supabase
+              .from('users')
+              .select('user_id, username, display_name')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+            
+            if (profileError) {
+              console.error('Error checking user profile:', profileError);
+              toast({
+                title: 'Profile Error',
+                description: `Database issue: ${profileError.message}. Please contact support.`,
+                variant: 'destructive',
+              });
+              return;
+            }
+            
+            if (!userProfile) {
+              console.error('User authenticated but profile does not exist in database');
+              // Sign them out and tell them to sign up
+              await supabase.auth.signOut();
+              toast({
+                title: 'Account Not Found',
+                description: 'This account exists but is incomplete. Please sign up again to create your profile.',
+                variant: 'destructive',
+              });
+              return;
+            }
+            
+            toast({
+              title: 'Signed in successfully',
+              description: `Welcome back, ${userProfile.display_name || userProfile.username}!`,
+            });
+          }
         } else if (event === 'SIGNED_OUT') {
           toast({
             title: 'Signed out',
@@ -59,23 +90,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [toast]); // ← toast is stable, but included for completeness
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, fullName: string, username: string) => {
     setLoading(true);
     try {
+      const normalizedFullName = fullName.trim();
+      const normalizedUsername = username.trim().toLowerCase();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          data: {
+            full_name: normalizedFullName || undefined,
+            username: normalizedUsername || undefined,
+          },
           emailRedirectTo: `${window.location.origin}/`, // or /welcome, /verify-email, etc.
         },
       });
 
       if (error) {
+        console.error('Sign up error:', error);
         // Handle specific error cases
         if (error.code === 'over_email_send_rate_limit') {
           toast({
             title: 'Email Rate Limit Exceeded',
-            description: 'Too many signups. Please wait a few minutes or disable email confirmation in Supabase settings.',
+            description: 'Too many signups. Please wait a few minutes.',
+            variant: 'destructive',
+          });
+          throw error;
+        }
+        if (error.status === 422) {
+          toast({
+            title: 'Sign Up Failed',
+            description: error.message || 'User already exists or invalid data. Try signing in instead.',
             variant: 'destructive',
           });
           throw error;
@@ -85,12 +131,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Check if user was created (even if email confirmation is pending)
       if (data.user) {
-        toast({
-          title: 'Account created!',
-          description: data.user.email_confirmed_at 
-            ? 'Welcome! Your account is ready. Welcome bonus: 100 HTTN Points added.'
-            : 'Check your email to confirm your account. Welcome bonus: 100 HTTN Points added.',
-        });
+        // Wait a moment for trigger to create profile
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Verify profile was created
+        const { data: profile, error: profileError } = await supabase
+          .from('users')
+          .select('user_id')
+          .eq('user_id', data.user.id)
+          .maybeSingle();
+        
+        if (profileError) {
+          console.error('Profile check error:', profileError);
+          toast({
+            title: 'Account Created with Warning',
+            description: `Account created but profile setup may have failed: ${profileError.message}`,
+            variant: 'destructive',
+          });
+        } else if (!profile) {
+          toast({
+            title: 'Account Setup Issue',
+            description: 'Account created but profile was not initialized. Please contact support.',
+            variant: 'destructive',
+          });
+        } else {
+          toast({
+            title: 'Account created!',
+            description: data.user.email_confirmed_at 
+              ? 'Welcome! Your account is ready. Welcome bonus: 100 HTTN Points added.'
+              : 'Check your email to confirm your account. Welcome bonus: 100 HTTN Points added.',
+          });
+        }
       } else {
         toast({
           title: 'Sign Up Failed',
@@ -100,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error: any) {
       // Only show generic error if not already handled above
-      if (error?.code !== 'over_email_send_rate_limit') {
+      if (error?.code !== 'over_email_send_rate_limit' && error?.status !== 422) {
         toast({
           title: 'Sign Up Failed',
           description: error?.message || 'Something went wrong. Please try again.',

@@ -22,10 +22,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Clear any stale locks on mount
+    const clearStaleLocks = async () => {
+      try {
+        // Force refresh session to clear any stuck locks
+        await supabase.auth.getSession();
+      } catch (error) {
+        console.error('Error clearing stale locks:', error);
+      }
+    };
+    clearStaleLocks();
+
     // 1. Immediately load current session (fast path)
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
+      setLoading(false);
+    }).catch((error) => {
+      console.error('Error getting session:', error);
       setLoading(false);
     });
 
@@ -34,6 +48,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, session) => {
         console.log('Auth event:', event); // ← helpful for debugging
 
+        // Ignore initial session event to avoid duplicate processing
+        if (event === 'INITIAL_SESSION') return;
+
         setSession(session);
         setUser(session?.user ?? null);
 
@@ -41,38 +58,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_IN') {
           // Verify user profile exists in public.users table
           if (session?.user?.id) {
-            const { data: userProfile, error: profileError } = await supabase
-              .from('users')
-              .select('user_id, username, display_name')
-              .eq('user_id', session.user.id)
-              .maybeSingle();
-            
-            if (profileError) {
-              console.error('Error checking user profile:', profileError);
+            try {
+              const { data: userProfile, error: profileError } = await supabase
+                .from('users')
+                .select('user_id, username, display_name')
+                .eq('user_id', session.user.id)
+                .maybeSingle();
+              
+              if (profileError) {
+                console.error('Error checking user profile:', profileError);
+                toast({
+                  title: 'Profile Error',
+                  description: `Database issue: ${profileError.message}. Please contact support.`,
+                  variant: 'destructive',
+                });
+                return;
+              }
+              
+              if (!userProfile) {
+                console.error('User authenticated but profile does not exist in database');
+                toast({
+                  title: 'Account Not Found',
+                  description: 'This account exists but is incomplete. Please sign up again to create your profile.',
+                  variant: 'destructive',
+                });
+                // Sign them out in a separate microtask to avoid lock conflict
+                setTimeout(() => {
+                  supabase.auth.signOut().catch(console.error);
+                }, 100);
+                return;
+              }
+              
               toast({
-                title: 'Profile Error',
-                description: `Database issue: ${profileError.message}. Please contact support.`,
-                variant: 'destructive',
+                title: 'Signed in successfully',
+                description: `Welcome back, ${userProfile.display_name || userProfile.username}!`,
               });
-              return;
+            } catch (error) {
+              console.error('Error in SIGNED_IN handler:', error);
             }
-            
-            if (!userProfile) {
-              console.error('User authenticated but profile does not exist in database');
-              // Sign them out and tell them to sign up
-              await supabase.auth.signOut();
-              toast({
-                title: 'Account Not Found',
-                description: 'This account exists but is incomplete. Please sign up again to create your profile.',
-                variant: 'destructive',
-              });
-              return;
-            }
-            
-            toast({
-              title: 'Signed in successfully',
-              description: `Welcome back, ${userProfile.display_name || userProfile.username}!`,
-            });
           }
         } else if (event === 'SIGNED_OUT') {
           toast({

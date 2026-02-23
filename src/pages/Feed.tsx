@@ -75,57 +75,6 @@ interface Post {
 
 type FeedFilter = 'recent' | 'trending' | 'following';
 
-// Dummy verified creators for demo
-const dummyVerifiedCreators = [
-  { id: 'v1', displayName: 'Herald Official', username: 'herald', avatar: null, isGoldVerified: true },
-  { id: 'v2', displayName: 'Sarah Chen', username: 'sarahcreates', avatar: null, isGoldVerified: true },
-  { id: 'v3', displayName: 'Alex Rivera', username: 'alexr', avatar: null, isGoldVerified: true },
-];
-
-// Dummy posts for demo
-const dummyPosts = [
-  {
-    id: 'd1',
-    content: 'Just launched our community impact report! 🚀 This quarter we helped 500+ creators earn their first HTTN tokens. The future of creator economy is here.',
-    author: { id: 'v1', displayName: 'Herald Official', username: 'herald', avatar: null, isGoldVerified: true, isVerified: true },
-    likes: 1234,
-    comments: 89,
-    reposts: 234,
-    httnEarned: 450,
-    createdAt: new Date(Date.now() - 1000 * 60 * 30),
-  },
-  {
-    id: 'd2',
-    content: 'Every contribution matters. Every voice counts. Today I learned that my small daily actions have compounded into real impact. Thank you, Herald community. 💛',
-    author: { id: 'v2', displayName: 'Sarah Chen', username: 'sarahcreates', avatar: null, isGoldVerified: true, isVerified: true },
-    likes: 567,
-    comments: 45,
-    reposts: 123,
-    httnEarned: 320,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-  },
-  {
-    id: 'd3',
-    content: 'Web3 isn\'t about speculation. It\'s about ownership. It\'s about creators finally getting what they deserve. Herald gets it. 🙌',
-    author: { id: 'v3', displayName: 'Alex Rivera', username: 'alexr', avatar: null, isGoldVerified: true, isVerified: true },
-    likes: 892,
-    comments: 67,
-    reposts: 189,
-    httnEarned: 560,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4),
-  },
-  {
-    id: 'd4',
-    content: 'Completed my weekly tasks and got bonus tokens! Who else is grinding? 💪 #HTTNRewards',
-    author: { id: 'u1', displayName: 'Jordan Taylor', username: 'jtaylor', avatar: null, isGoldVerified: false, isVerified: false },
-    likes: 156,
-    comments: 18,
-    reposts: 12,
-    httnEarned: 80,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 6),
-  },
-];
-
 export default function Feed() {
   const { user } = useAuth();
   const { createNotification } = useRealTimeNotifications();
@@ -152,11 +101,42 @@ export default function Feed() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    // Test Supabase connectivity on mount
+    console.log('Testing Supabase connectivity...');
+    console.log('VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL || 'NOT SET');
+    console.log('VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY ? '***SET***' : 'NOT SET');
+    
+    // Try a simple health check
+    supabase.from('posts').select('count').limit(1).then(res => {
+      console.log('Supabase health check:', res);
+    }).catch(err => {
+      console.error('Supabase health check FAILED:', err);
+    });
+  }, []);
+
+  useEffect(() => {
     if (user) {
-      fetchUserData();
-      fetchPosts();
-      fetchTopCreators();
+      console.log('Feed.tsx: user detected, starting data fetch (2sec max timeout)...');
+      
+      const timeoutId = setTimeout(() => {
+        console.warn('Feed data fetch timeout - page will render with partial data');
+      }, 2000);
+
+      Promise.all([
+        fetchUserData(),
+        fetchPosts(),
+        fetchTopCreators(),
+      ]).then(() => {
+        clearTimeout(timeoutId);
+        console.log('Feed.tsx: all data fetched successfully');
+      }).catch(err => {
+        clearTimeout(timeoutId);
+        console.error('Feed.tsx: Error loading feed data:', err);
+      });
+
       subscribeToNewPosts();
+
+      return () => clearTimeout(timeoutId);
     }
   }, [user]);
 
@@ -222,17 +202,8 @@ export default function Feed() {
       .limit(10);
 
     if (error) {
-      const { data: plainPosts } = await supabase.from('posts').select('*').lt('created_at', lastPost.created_at).order('created_at', { ascending: false }).limit(10);
-      if (plainPosts?.length) {
-        const authorIds = [...new Set(plainPosts.map(p => p.author_id))];
-        const { data: users } = await supabase.from('users').select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified').in('user_id', authorIds);
-        const userMap = new Map((users || []).map(u => [u.user_id, u]));
-        setPosts(prev => [...prev, ...plainPosts.map(p => ({
-          ...p,
-          author: (userMap.get(p.author_id) as Profile) ?? { display_name: 'Unknown', username: '', tier: 'participant', reputation: 0, avatar_url: null, is_creator: false, is_verified: false },
-        }))]);
-      }
-      if (!plainPosts || plainPosts.length < 10) setHasMore(false);
+      console.error('Error loading more posts:', error);
+      setHasMore(false);
     } else if (data) {
       if (data.length < 10) setHasMore(false);
       setPosts(prev => [...prev, ...data.map(p => ({ ...p, author: p.author as unknown as Profile }))]);
@@ -248,65 +219,113 @@ export default function Feed() {
   const fetchUserData = async () => {
     if (!user) return;
 
-    const [walletRes, profileRes, tasksRes] = await Promise.all([
-      supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('user_tasks').select('*').eq('user_id', user.id).eq('completed', false),
-    ]);
+    try {
+      console.log('fetchUserData: starting for user', user.id);
+      const startTime = performance.now();
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 2000)
+      );
 
-    if (walletRes.data) setWallet(walletRes.data);
-    if (profileRes.data) setProfile(profileRes.data);
-    if (tasksRes.data) setTasks(tasksRes.data);
+      const fetchPromise = Promise.all([
+        supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('user_tasks').select('*').eq('user_id', user.id).eq('completed', false),
+      ]);
+
+      const [walletRes, profileRes, tasksRes] = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+      const duration = performance.now() - startTime;
+      console.log(`fetchUserData: completed in ${duration.toFixed(0)}ms`);
+
+      if (walletRes?.data) {
+        console.log('Wallet data:', walletRes.data);
+        setWallet(walletRes.data);
+      }
+      if (profileRes?.data) {
+        console.log('Profile data:', profileRes.data);
+        setProfile(profileRes.data);
+      }
+      if (tasksRes?.data) {
+        console.log('Tasks data:', tasksRes.data);
+        setTasks(tasksRes.data);
+      }
+    } catch (error) {
+      console.error('fetchUserData error/timeout:', error instanceof Error ? error.message : error);
+    }
   };
 
   const fetchPosts = async () => {
-    const { data, error } = await supabase
-      .from('posts')
-      .select(`
-        *,
-        author:users!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(20);
+    try {
+      console.log('fetchPosts: starting');
+      const startTime = performance.now();
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 2000)
+      );
 
-    if (error) {
-      const { data: plainPosts } = await supabase.from('posts').select('*').order('created_at', { ascending: false }).limit(20);
-      if (plainPosts?.length) {
-        const authorIds = [...new Set(plainPosts.map(p => p.author_id))];
-        const { data: users } = await supabase.from('users').select('user_id, display_name, username, tier, reputation, avatar_url, is_creator, is_verified').in('user_id', authorIds);
-        const userMap = new Map((users || []).map(u => [u.user_id, u]));
-        setPosts(plainPosts.map(p => ({
-          ...p,
-          author: (userMap.get(p.author_id) as Profile) ?? {
-            display_name: 'Unknown',
-            username: '',
-            tier: 'participant',
-            reputation: 0,
-            avatar_url: null,
-            is_creator: false,
-            is_verified: false,
-          },
-        })));
-      } else setPosts([]);
-      return;
-    }
-    if (data) {
-      setPosts(data.map(p => ({ ...p, author: p.author as unknown as Profile })));
+      const fetchPromise = supabase
+        .from('posts')
+        .select(`
+          *,
+          author:users!posts_author_id_fkey(display_name, username, tier, reputation, avatar_url, is_creator, is_verified)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+      const duration = performance.now() - startTime;
+      console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
+
+      if (error) {
+        console.error('Error fetching posts:', error);
+        setPosts([]);
+        return;
+      }
+      
+      console.log(`fetchPosts: loaded ${data?.length ?? 0} posts`);
+      if (data) {
+        setPosts(data.map(p => ({ ...p, author: p.author as unknown as Profile })));
+      }
+    } catch (error) {
+      console.error('fetchPosts error/timeout:', error instanceof Error ? error.message : error);
+      setPosts([]);
     }
   };
 
   const fetchTopCreators = async () => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .order('reputation', { ascending: false })
-      .limit(5);
+    try {
+      console.log('fetchTopCreators: starting');
+      const startTime = performance.now();
+      
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('timeout')), 2000)
+      );
 
-    if (error) {
-      if (data === null) setTopCreators([]);
-      return;
+      const fetchPromise = supabase
+        .from('users')
+        .select('*')
+        .order('reputation', { ascending: false })
+        .limit(5);
+
+      const { data, error } = await Promise.race([fetchPromise, timeoutPromise]) as any;
+
+      const duration = performance.now() - startTime;
+      console.log(`fetchTopCreators: completed in ${duration.toFixed(0)}ms`);
+
+      if (error) {
+        console.error('Error fetching top creators:', error);
+        setTopCreators([]);
+        return;
+      }
+      
+      console.log(`fetchTopCreators: loaded ${data?.length ?? 0} creators`);
+      if (data) setTopCreators(data);
+    } catch (error) {
+      console.error('fetchTopCreators error/timeout:', error instanceof Error ? error.message : error);
+      setTopCreators([]);
     }
-    if (data) setTopCreators(data);
   };
 
   const handleLike = async (postId: string) => {
@@ -709,37 +728,6 @@ export default function Feed() {
       <NewsSection compact />
       <TrendingSection />
       <TasksPanel tasks={formattedTasks} onClaim={handleClaimTask} />
-      
-      {/* Who to follow */}
-      <div className="herald-card p-4 space-y-3">
-        <h3 className="font-display font-semibold text-foreground">Who to follow</h3>
-        <div className="space-y-3">
-          {dummyVerifiedCreators.map((creator) => (
-            <div
-              key={creator.id}
-              className="flex items-center justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground">
-                  {creator.displayName[0]}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-foreground flex items-center gap-1">
-                    {creator.displayName}
-                    {creator.isGoldVerified && (
-                      <BadgeCheck className="w-4 h-4 text-primary fill-primary/20" />
-                    )}
-                  </p>
-                  <p className="text-xs text-muted-foreground">@{creator.username}</p>
-                </div>
-              </div>
-              <Button variant="outline" size="sm" className="rounded-full font-semibold">
-                Follow
-              </Button>
-            </div>
-          ))}
-        </div>
-      </div>
     </RightSidebarWithAds>
   );
 
@@ -887,31 +875,7 @@ export default function Feed() {
 
       {/* Feed */}
       <div>
-        {/* Show dummy posts first, then real posts */}
-        {dummyPosts.map((post, index) => (
-          <div key={post.id}>
-            <TwitterStylePost
-              id={post.id}
-              author={post.author}
-              content={post.content}
-              likes={post.likes}
-              comments={post.comments}
-              reposts={post.reposts}
-              httnEarned={post.httnEarned}
-              createdAt={post.createdAt}
-              onLike={handleLike}
-              onRepost={handleRepost}
-            />
-            {/* Insert ads between posts */}
-            {index === 1 && (
-              <div className="px-4 py-3 border-b border-border">
-                <VerticalAdBanner {...verticalAds[0]} />
-              </div>
-            )}
-          </div>
-        ))}
-
-        {/* Real posts from database */}
+        {/* Posts from database */}
         {posts.map((post, index) => (
           <div key={post.id}>
             <TwitterStylePost
@@ -971,8 +935,8 @@ export default function Feed() {
           </div>
         ))}
 
-        {/* Don't show "No more posts" if dummy posts are visible */}
-        {dummyPosts.length === 0 && posts.length === 0 && (
+        {/* No posts message */}
+        {posts.length === 0 && (
           <div className="p-8 text-center text-muted-foreground border-b border-border">
             <p>No posts available. Check back later!</p>
           </div>

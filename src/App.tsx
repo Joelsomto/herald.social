@@ -49,25 +49,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkOnboarding = async () => {
       if (user && !loading) {
-        let completed = false;
-        // Only query user_interests if the table exists (avoid 404 when migrations not run)
-        const { data: interestsData, error: interestsError } = await supabase
-          .from('user_interests')
-          .select('onboarding_completed')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (!interestsError && interestsData?.onboarding_completed === true) {
-          completed = true;
-        }
-
-        if (!completed) {
-          // Returning user: they have a profile, wallet, or posts (use only columns that exist in base schema)
+        try {
+          let completed = false;
+          
+          // Safety timeout - if checks take too long, assume completed
+          const timeoutId = setTimeout(() => {
+            console.warn('Onboarding check timeout - marking as completed');
+            setCheckingOnboarding(false);
+          }, 10000);
+          
+          // Skip user_interests check - table may not exist yet
+          // Assume completed if they have profile + wallet
+          
+          // Returning user: they have a profile, wallet, or posts
           const [profileRes, walletRes, postsRes] = await Promise.all([
             supabase.from('users').select('user_id, created_at').eq('user_id', user.id).maybeSingle(),
             supabase.from('wallets').select('id').eq('user_id', user.id).maybeSingle(),
             supabase.from('posts').select('id').eq('author_id', user.id).limit(1).maybeSingle(),
           ]);
+
+          clearTimeout(timeoutId);
 
           const profile = profileRes.data;
           const hasWallet = walletRes.data != null;
@@ -78,16 +79,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
           if (isReturningUser) {
             completed = true;
-            // Best-effort: mark onboarding complete in user_interests if table exists
-            await supabase.from('user_interests').upsert(
-              { user_id: user.id, interests: [], onboarding_completed: true },
-              { onConflict: 'user_id' }
-            );
           }
+          
+          console.log('Onboarding check completed:', { completed, hasWallet, hasPosts, profileAge: profileAgeMs });
+          if (!completed) setShowOnboarding(true);
+        } catch (error) {
+          console.error('Error checking onboarding:', error);
+        } finally {
+          setCheckingOnboarding(false);
         }
-
-        if (!completed) setShowOnboarding(true);
-        setCheckingOnboarding(false);
       } else if (!loading) {
         setCheckingOnboarding(false);
       }

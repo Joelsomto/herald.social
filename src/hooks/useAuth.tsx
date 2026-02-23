@@ -22,42 +22,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Clear any stale locks on mount
-    const clearStaleLocks = async () => {
-      try {
-        // Force refresh session to clear any stuck locks
-        await supabase.auth.getSession();
-      } catch (error) {
-        console.error('Error clearing stale locks:', error);
-      }
-    };
-    clearStaleLocks();
+    // Subscribe to auth state changes - this handles initial session + future changes
+    let mounted = true;
+    let initialLoadComplete = false;
 
-    // 1. Immediately load current session (fast path)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    }).catch((error) => {
-      console.error('Error getting session:', error);
-      setLoading(false);
-    });
-
-    // 2. Subscribe to all future changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('Auth event:', event); // ← helpful for debugging
+        console.log('Auth event:', event, 'Session:', session?.user?.id);
 
-        // Ignore initial session event to avoid duplicate processing
-        if (event === 'INITIAL_SESSION') return;
+        if (!mounted) return;
 
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        // Optional: reload profile data or trigger side-effects here
-        if (event === 'SIGNED_IN') {
-          // Verify user profile exists in public.users table
-          if (session?.user?.id) {
+        // On first load (INITIAL_SESSION or first SIGNED_IN), set user and mark as loaded
+        if (!initialLoadComplete) {
+          console.log('Initial auth state received, setting user and loading=false');
+          setSession(session);
+          setUser(session?.user ?? null);
+          setLoading(false);
+          initialLoadComplete = true;
+          
+          if (session?.user) {
+            // Verify profile exists for signed-in users
             try {
               const { data: userProfile, error: profileError } = await supabase
                 .from('users')
@@ -67,51 +51,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               
               if (profileError) {
                 console.error('Error checking user profile:', profileError);
-                toast({
-                  title: 'Profile Error',
-                  description: `Database issue: ${profileError.message}. Please contact support.`,
-                  variant: 'destructive',
-                });
                 return;
               }
               
               if (!userProfile) {
-                console.error('User authenticated but profile does not exist in database');
-                toast({
-                  title: 'Account Not Found',
-                  description: 'This account exists but is incomplete. Please sign up again to create your profile.',
-                  variant: 'destructive',
-                });
-                // Sign them out in a separate microtask to avoid lock conflict
+                console.error('User authenticated but profile does not exist');
+                // Sign them out
                 setTimeout(() => {
                   supabase.auth.signOut().catch(console.error);
                 }, 100);
                 return;
               }
               
-              toast({
-                title: 'Signed in successfully',
-                description: `Welcome back, ${userProfile.display_name || userProfile.username}!`,
-              });
+              console.log('User profile verified:', userProfile);
             } catch (error) {
-              console.error('Error in SIGNED_IN handler:', error);
+              console.error('Exception checking profile:', error);
             }
           }
-        } else if (event === 'SIGNED_OUT') {
-          toast({
-            title: 'Signed out',
-            description: 'You have been signed out.',
-          });
+          return;
         }
 
-        // You can add more events: PASSWORD_RECOVERY, USER_UPDATED, MFA_CHALLENGE_VERIFIED, etc.
+        // Handle subsequent state changes
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          try {
+            const { data: userProfile, error: profileError } = await supabase
+              .from('users')
+              .select('user_id, username, display_name')
+              .eq('user_id', session.user.id)
+              .maybeSingle();
+            
+            if (profileError) {
+              console.error('Error checking user profile:', profileError);
+              return;
+            }
+            
+            if (!userProfile) {
+              console.error('User authenticated but profile does not exist');
+              setTimeout(() => {
+                supabase.auth.signOut().catch(console.error);
+              }, 100);
+              return;
+            }
+          } catch (error) {
+            console.error('Exception in SIGNED_IN handler:', error);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          console.log('User signed out');
+        }
       }
     );
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
-  }, [toast]); // ← toast is stable, but included for completeness
+  }, [toast]);
 
   const signUp = async (email: string, password: string, fullName: string, username: string) => {
     setLoading(true);

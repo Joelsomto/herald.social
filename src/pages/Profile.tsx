@@ -29,7 +29,9 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { getCurrentUser, updateCurrentUser } from '@/lib/api/users';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
+import { getCurrentUserPosts } from '@/lib/api/posts';
 import { useToast } from '@/hooks/use-toast';
 import { AvatarUpload } from '@/components/herald/AvatarUpload';
 import { useNavigate } from 'react-router-dom';
@@ -104,56 +106,62 @@ export default function Profile() {
   const fetchProfileData = async () => {
     if (!user) return;
     setProfileLoading(true);
-    const [profileRes, walletRes, postsRes] = await Promise.all([
-      supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
-      supabase.from('wallets').select('httn_points, httn_tokens').eq('user_id', user.id).maybeSingle(),
-      supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
-    ]);
+    
+    try {
+      const [profileData, walletData, postsResponse] = await Promise.all([
+        getCurrentUser(),
+        getCurrentUserWallet(),
+        getCurrentUserPosts({ limit: 50 }),
+      ]);
 
-    if (profileRes.data) {
-      setProfile(profileRes.data as ProfileData);
-      setEditForm({
-        display_name: profileRes.data.display_name || '',
-        username: profileRes.data.username || '',
-        bio: profileRes.data.bio || '',
-        account_type: profileRes.data.account_type || 'normal',
-        organization_name: profileRes.data.organization_name || '',
-        business_category: profileRes.data.business_category || '',
-      });
+      if (profileData) {
+        setProfile(profileData as any);
+        setEditForm({
+          display_name: profileData.display_name || '',
+          username: profileData.username || '',
+          bio: profileData.bio || '',
+          account_type: (profileData as any).account_type || 'normal',
+          organization_name: (profileData as any).organization_name || '',
+          business_category: (profileData as any).business_category || '',
+        });
+      }
+      if (walletData) setWallet(walletData as any);
+      if (postsResponse?.data) setPosts(postsResponse.data as any);
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+    } finally {
+      setProfileLoading(false);
     }
-    if (walletRes.data) setWallet(walletRes.data);
-    if (postsRes.data) setPosts(postsRes.data);
-    setProfileLoading(false);
   };
 
   const handleSaveProfile = async () => {
     if (!user || !profile) return;
 
-    const { error } = await supabase
-      .from('users')
-      .update({
+    try {
+      await updateCurrentUser({
         display_name: editForm.display_name,
         username: editForm.username,
         bio: editForm.bio,
-        account_type: editForm.account_type,
-        organization_name: editForm.account_type !== 'normal' ? editForm.organization_name : null,
-        business_category: editForm.account_type === 'business' ? editForm.business_category : null,
-      })
-      .eq('user_id', user.id);
+        ...(editForm.account_type !== 'normal' && {
+          organization_name: editForm.organization_name,
+        }),
+        ...(editForm.account_type === 'business' && {
+          business_category: editForm.business_category,
+        }),
+      } as any);
 
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to update profile',
-        variant: 'destructive',
-      });
-    } else {
       toast({
         title: 'Profile Updated',
         description: 'Your profile has been updated successfully',
       });
       setIsEditing(false);
       fetchProfileData();
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to update profile',
+        variant: 'destructive',
+      });
     }
   };
 

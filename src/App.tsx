@@ -7,7 +7,9 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { SplashScreen } from "@/components/herald/SplashScreen";
 import { OnboardingFlow } from "@/components/herald/OnboardingFlow";
-import { supabase } from "@/integrations/supabase/client";
+import { getCurrentUser } from "@/lib/api/users";
+import { getCurrentUserWallet } from "@/lib/api/wallets";
+import { getCurrentUserPosts } from "@/lib/api/posts";
 import { AnimatePresence } from "framer-motion";
 import Auth from "./pages/Auth";
 import Feed from "./pages/Feed";
@@ -62,17 +64,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
           // Assume completed if they have profile + wallet
           
           // Returning user: they have a profile, wallet, or posts
-          const [profileRes, walletRes, postsRes] = await Promise.all([
-            supabase.from('users').select('user_id, created_at').eq('user_id', user.id).maybeSingle(),
-            supabase.from('wallets').select('id').eq('user_id', user.id).maybeSingle(),
-            supabase.from('posts').select('id').eq('author_id', user.id).limit(1).maybeSingle(),
+          const results = await Promise.allSettled([
+            getCurrentUser(),
+            getCurrentUserWallet(),
+            getCurrentUserPosts({ limit: 1 }),
           ]);
 
           clearTimeout(timeoutId);
 
-          const profile = profileRes.data;
-          const hasWallet = walletRes.data != null;
-          const hasPosts = postsRes.data != null;
+          const profile = results[0].status === 'fulfilled' ? results[0].value : null;
+          const hasWallet = results[1].status === 'fulfilled';
+          const hasPosts = results[2].status === 'fulfilled' && results[2].value?.data?.length > 0;
           const profileAgeMs = profile?.created_at ? Date.now() - new Date(profile.created_at).getTime() : 0;
           const isReturningUser =
             (profile != null && profileAgeMs > 60_000) || hasWallet || hasPosts;

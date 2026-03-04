@@ -2,7 +2,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Radio, Users, Bell, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 
 const navItems = [
   { icon: Home, label: 'Home', path: '/feed' },

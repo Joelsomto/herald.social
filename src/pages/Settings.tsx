@@ -22,7 +22,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useToast } from '@/hooks/use-toast';
 
 interface UserSettings {

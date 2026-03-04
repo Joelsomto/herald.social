@@ -25,7 +25,6 @@ import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
 import { ThemeToggle } from './ThemeToggle';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -50,12 +49,11 @@ export function AppSidebar() {
 
   const fetchProfile = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('users')
-      .select('display_name, username, avatar_url')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (data) setProfile(data);
+    setProfile({
+      display_name: user.display_name ?? null,
+      username: user.username ?? null,
+      avatar_url: user.avatar_url ?? null,
+    });
   };
 
   const handleSignOut = async () => {

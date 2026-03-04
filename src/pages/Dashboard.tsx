@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { ContentInsights } from '@/components/herald/ContentInsights';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { 

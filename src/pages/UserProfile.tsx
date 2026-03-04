@@ -4,7 +4,8 @@ import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import { FollowButton } from '@/components/herald/FollowButton';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
-import { supabase } from '@/integrations/supabase/client';
+import { getUserByUsername } from '@/lib/api/users';
+import { getPosts } from '@/lib/api/posts';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -135,31 +136,25 @@ export default function UserProfile() {
     }
 
     try {
-      const { data: profileData, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', username)
-        .single();
-
-      if (profileError) {
-        setProfile(null);
-        setPosts([]);
-        setLoading(false);
-        return;
-      }
+      const profileData = await getUserByUsername(username);
 
       if (profileData) {
-        setProfile(profileData);
-        const { data: postsData } = await supabase
-          .from('posts')
-          .select('*')
-          .eq('author_id', profileData.user_id)
-          .order('created_at', { ascending: false })
-          .limit(20);
-        if (postsData) setPosts(postsData);
+        setProfile(profileData as any);
+        const postsResponse = await getPosts({ limit: 20, sort: '-created_at' });
+        if (postsResponse?.data) {
+          // Filter posts by this user (API should do this but we'll filter client-side for now)
+          const userPosts = postsResponse.data.filter((p: any) => p.author_id === profileData.id || p.author?.username === username);
+          setPosts(userPosts as any);
+        }
+      } else {
+        setProfile(null);
+        setPosts([]);
       }
-    } catch {
+    } catch (err) {
+      console.error('Error fetching profile:', err);
       setError('Failed to load profile.');
+      setProfile(null);
+      setPosts([]);
     } finally {
       setLoading(false);
     }

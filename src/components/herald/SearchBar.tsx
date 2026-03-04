@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Search, X, BadgeCheck, TrendingUp, Clock, Loader2 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useNavigate } from 'react-router-dom';
 
 interface SearchResult {
@@ -47,18 +47,11 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
       }
       setSearching(true);
       try {
-        const [profilesRes, postsRes] = await Promise.all([
-          supabase
-            .from('users')
-            .select('user_id, display_name, username, avatar_url, is_verified')
-            .or(`display_name.ilike.%${query}%,username.ilike.%${query}%`)
-            .limit(5),
-          supabase
-            .from('posts')
-            .select('id, content')
-            .ilike('content', `%${query}%`)
-            .limit(3),
-        ]);
+        // TODO: Integrate search API for users and posts
+        // Example: const profilesRes = await apiClient.get(`/search/users?q=${query}`);
+        // Example: const postsRes = await apiClient.get(`/search/posts?q=${query}`);
+        const profilesRes = { data: [] };
+        const postsRes = { data: [] };
 
         const userResults: SearchResult[] = (profilesRes.data || []).map((p: { user_id: string; display_name?: string | null; username?: string | null; avatar_url?: string | null; is_verified?: boolean }) => ({
           type: 'user' as const,
@@ -174,52 +167,8 @@ export function SearchBar({ className = '', onClose }: SearchBarProps) {
             {query.length > 0 && searching && (
               <div className="p-4 flex items-center justify-center gap-2 text-muted-foreground text-sm">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Searching...
-              </div>
-            )}
-
-            {query.length > 0 && !searching && results.length === 0 && (
-              <div className="p-4 text-center text-muted-foreground text-sm">
-                No results found for "{query}"
-              </div>
-            )}
-
-            {results.length > 0 && !searching && (
-              <div className="divide-y divide-border">
-                {results.map((result) => (
-                  <button
-                    key={`${result.type}-${result.id}`}
-                    onClick={() => handleSelect(result)}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-secondary/50 transition-colors text-left"
-                  >
-                    {result.type === 'user' ? (
-                      <>
-                        <Avatar className="w-10 h-10">
-                          <AvatarImage src={result.avatar || undefined} />
-                          <AvatarFallback className="bg-primary/20 text-primary font-display font-bold">
-                            {result.title[0]}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <p className="font-semibold text-foreground flex items-center gap-1">
-                            {result.title}
-                            {result.isVerified && (
-                              <BadgeCheck className="w-4 h-4 text-primary fill-primary/20" />
-                            )}
-                          </p>
-                          <p className="text-sm text-muted-foreground">{result.subtitle}</p>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center">
-                          <TrendingUp className="w-5 h-5 text-muted-foreground" />
-                        </div>
-                        <p className="text-sm text-foreground">{result.title}</p>
-                      </>
-                    )}
-                  </button>
-                ))}
+                <span>Searching...</span>
+                {/* TODO: Integrate search with new backend */}
               </div>
             )}
           </Card>

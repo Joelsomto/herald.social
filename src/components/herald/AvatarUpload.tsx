@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Camera, Loader2, X } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useToast } from '@/hooks/use-toast';
 
 interface AvatarUploadProps {
@@ -54,54 +54,17 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
 
-    // Upload to Supabase Storage
+    // TODO: Integrate avatar upload with new backend
     setUploading(true);
-    try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${userId}/avatar.${fileExt}`;
-
-      // Delete existing avatar if any
-      await supabase.storage.from('avatars').remove([`${userId}/avatar.jpg`, `${userId}/avatar.png`, `${userId}/avatar.webp`]);
-
-      // Upload new avatar
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(fileName, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(fileName);
-
-      // Add cache-busting timestamp
-      const avatarUrl = `${publicUrl}?t=${Date.now()}`;
-
-      // Update profile with new avatar URL
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ avatar_url: avatarUrl })
-        .eq('user_id', userId);
-
-      if (updateError) throw updateError;
-
-      onAvatarChange(avatarUrl);
+    setTimeout(() => {
+      // Simulate upload success for now
+      setUploading(false);
+      onAvatarChange(objectUrl);
       toast({
         title: 'Avatar Updated',
-        description: 'Your profile picture has been updated',
+        description: 'Your profile picture has been updated (local preview only)',
       });
-    } catch (error: any) {
-      console.error('Upload error:', error);
-      toast({
-        title: 'Upload Failed',
-        description: error.message || 'Failed to upload avatar',
-        variant: 'destructive',
-      });
-      setPreviewUrl(null);
-    } finally {
-      setUploading(false);
-    }
+    }, 1200);
   };
 
   const triggerFileInput = () => {

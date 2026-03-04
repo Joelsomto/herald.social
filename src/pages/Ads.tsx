@@ -31,11 +31,9 @@ import {
   BarChart3
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 interface AdCampaign {
-  id: string;
   title: string;
   description: string | null;
   budget_points: number;

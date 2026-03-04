@@ -12,7 +12,7 @@ import {
   Video, Radio, Users, Play, Eye, BadgeCheck, Plus, Calendar,
   TrendingUp, Clock, Sparkles, Loader2, AlertCircle, RefreshCw
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LiveStream {

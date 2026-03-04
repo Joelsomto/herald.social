@@ -20,7 +20,7 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useToast } from '@/hooks/use-toast';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 

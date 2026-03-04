@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Image, Video, Film, Send, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+import { createPost } from '@/lib/api/posts';
 import { useToast } from '@/hooks/use-toast';
 import { MediaUpload } from './MediaUpload';
 
@@ -28,45 +28,16 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
 
     setLoading(true);
     try {
-      const { data: newPost, error } = await supabase
-        .from('posts')
-        .insert({
-          author_id: user.id,
-          content: content.trim(),
-          media_type: mediaType,
-          media_url: mediaUrl,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Post creation error:', error);
-        console.error('Error details:', {
-          message: error.message,
-          code: error.code,
-          hint: error.hint,
-          details: error.details,
-        });
-        throw error;
-      }
+      await createPost({
+        content: content.trim(),
+        media_type: mediaType as any,
+        media_url: mediaUrl || undefined,
+      });
 
       toast({
         title: 'Post created!',
         description: 'Your content is now live. +5 HTTN Points earned!',
       });
-
-      // Award points for posting
-      const { data: wallet } = await supabase
-        .from('wallets')
-        .select('httn_points')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (wallet) {
-        await supabase.from('wallets').update({
-          httn_points: wallet.httn_points + 5,
-        }).eq('user_id', user.id);
-      }
 
       setContent('');
       setMediaType(null);
@@ -78,9 +49,10 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
         onPostCreated();
       }, 100);
     } catch (error: any) {
+      console.error('Post creation error:', error);
       toast({
         title: 'Error',
-        description: error.message,
+        description: error?.message || 'Failed to create post',
         variant: 'destructive',
       });
     } finally {

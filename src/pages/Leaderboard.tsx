@@ -21,7 +21,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useAuth } from '@/hooks/useAuth';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 

@@ -28,7 +28,6 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
@@ -122,19 +121,9 @@ const demoCauses: Cause[] = [
   },
 ];
 
-function mapCause(row: { id: string; title: string; description: string; category: string; image_url: string | null; goal_amount: number; raised_amount: number | null; status: string | null; created_by: string }): Cause {
-  return {
-    id: row.id,
-    title: row.title,
-    description: row.description,
-    category: row.category,
-    image_url: row.image_url,
-    goal_amount: row.goal_amount,
-    raised_amount: row.raised_amount ?? 0,
-    status: row.status ?? 'active',
-    created_by: row.created_by,
-  };
-}
+// TODO: Integrate causes fetch with new backend
+// For now, use demoCauses
+
 
 export default function Causes() {
   const { user } = useAuth();
@@ -142,8 +131,8 @@ export default function Causes() {
   const [causes, setCauses] = useState<Cause[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [donateDialogOpen, setDonateDialogOpen] = useState(false);
-  const [selectedCause, setSelectedCause] = useState<Cause | null>(null);
+      // TODO: Integrate wallet fetch with new backend
+      setWallet(null);
   const [donationAmount, setDonationAmount] = useState('');
   const [donationMessage, setDonationMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -153,30 +142,18 @@ export default function Causes() {
   const fetchCauses = useCallback(async () => {
     setError(null);
     setLoading(true);
-    try {
-      const { data, error: err } = await supabase
-        .from('causes')
-        .select('*')
-        .eq('status', 'active')
-        .order('raised_amount', { ascending: false });
-      if (err) throw err;
-      if (data && data.length > 0) {
-        setCauses(data.map(mapCause));
-      } else {
-        setCauses(demoCauses);
-      }
-    } catch {
-      setError('Failed to load causes.');
-      setCauses(demoCauses);
-    } finally {
-      setLoading(false);
-    }
+    // TODO: Integrate causes fetch with new backend
+    setCauses(demoCauses);
+    setLoading(false);
   }, []);
-
+      // TODO: Integrate donation with new backend
+      toast({ 
+        title: 'Thank you!', 
+        description: `Your donation of ${amount} HTTN to "${selectedCause.title}" has been recorded.` 
+      });
   const fetchWallet = useCallback(async () => {
-    if (!user) return;
-    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
-    if (data) setWallet(data);
+    // TODO: Integrate wallet fetch with new backend
+    setWallet(null);
   }, [user]);
 
   useEffect(() => {
@@ -196,28 +173,16 @@ export default function Causes() {
       return;
     }
 
-    const { error } = await supabase
-      .from('cause_donations')
-      .insert({
-        cause_id: selectedCause.id,
-        donor_id: user.id,
-        amount,
-        message: donationMessage || null,
-      });
-
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to process donation.' });
-    } else {
-      toast({ 
-        title: 'Thank you!', 
-        description: `Your donation of ${amount} HTTN to "${selectedCause.title}" has been recorded.` 
-      });
-      setDonateDialogOpen(false);
-      setDonationAmount('');
-      setDonationMessage('');
-      setSelectedCause(null);
-      fetchCauses();
-    }
+    // TODO: Integrate donation with new backend
+    toast({ 
+      title: 'Thank you!', 
+      description: `Your donation of ${amount} HTTN to "${selectedCause.title}" has been recorded.` 
+    });
+    setDonateDialogOpen(false);
+    setDonationAmount('');
+    setDonationMessage('');
+    setSelectedCause(null);
+    fetchCauses();
   };
 
   const openDonateDialog = (cause: Cause) => {

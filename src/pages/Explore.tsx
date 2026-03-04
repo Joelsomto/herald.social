@@ -19,7 +19,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { useAuth } from '@/hooks/useAuth';
 import { ScrollableReels } from '@/components/herald/ScrollableReels';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';

@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import heroBg from '@/assets/herald-hero-bg.jpg';
 
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 
 // ────────────────────────────────────────────────
 // Dummy data – only used when NOT logged in

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { MessageCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
+// Supabase removed
 import { MessagesPopup } from './MessagesPopup';
 
 export function FloatingMessageButton() {
@@ -11,47 +11,11 @@ export function FloatingMessageButton() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
-    if (user) {
-      fetchUnreadCount();
-      subscribeToMessages();
-    }
+    // TODO: Integrate unread message count and real-time updates with new backend
+    setUnreadCount(0);
   }, [user]);
 
-  const subscribeToMessages = () => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('unread-messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `receiver_id=eq.${user.id}`,
-        },
-        () => {
-          fetchUnreadCount();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
-
-  const fetchUnreadCount = async () => {
-    if (!user) return;
-
-    const { count } = await supabase
-      .from('messages')
-      .select('*', { count: 'exact', head: true })
-      .eq('receiver_id', user.id)
-      .eq('read', false);
-
-    setUnreadCount(count || 0);
-  };
+  // TODO: Implement subscribeToMessages and fetchUnreadCount with new backend
 
   const handleOpen = () => {
     setIsOpen(true);

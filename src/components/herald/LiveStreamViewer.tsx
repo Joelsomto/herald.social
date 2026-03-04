@@ -10,7 +10,6 @@ import {
   Volume2, VolumeX, Maximize, Minimize, Share2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 

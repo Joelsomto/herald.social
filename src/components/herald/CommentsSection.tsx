@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Heart, MessageCircle, BadgeCheck, Send } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { getPostComments, createComment, likeComment } from '@/lib/api/comments';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
@@ -43,120 +43,70 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
   useEffect(() => {
     if (isOpen) {
       fetchComments();
-      const cleanup = subscribeToComments();
-      return cleanup;
+      // TODO: Add realtime subscription via WebSocket
     }
   }, [isOpen, postId]);
 
-  const subscribeToComments = () => {
-    const channel = supabase
-      .channel(`comments-${postId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` },
-        () => fetchComments()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  };
-
   const fetchComments = async () => {
-    // Fetch comments
-    const { data: commentsData } = await supabase
-      .from('comments')
-      .select('*')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true });
+    try {
+      const response = await getPostComments(postId, { limit: 100 });
+      if (!response?.data) return;
 
-    if (!commentsData) return;
-
-    // Fetch author profiles separately
-    const authorIds = [...new Set(commentsData.map(c => c.author_id))];
-    const { data: profiles } = await supabase
-      .from('users')
-      .select('user_id, display_name, username, avatar_url, is_verified, is_creator')
-      .in('user_id', authorIds);
-
-    const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
-
-    // Combine comments with author data
-    const commentsWithAuthors = commentsData.map(c => ({
-      ...c,
-      author: profileMap.get(c.author_id) || null,
-    }));
-
-    // Organize comments into threads
-    const topLevel = commentsWithAuthors.filter(c => !c.parent_comment_id);
-    const replies = commentsWithAuthors.filter(c => c.parent_comment_id);
-    
-    const threaded = topLevel.map(comment => ({
-      ...comment,
-      replies: replies.filter(r => r.parent_comment_id === comment.id),
-    }));
-    
-    setComments(threaded);
+      // Organize comments into threads (assuming flat structure from API)
+      const topLevel = response.data.filter((c: any) => !c.parent_comment_id);
+      const replies = response.data.filter((c: any) => c.parent_comment_id);
+      
+      const threaded = topLevel.map((comment: any) => ({
+        ...comment,
+        replies: replies.filter((r: any) => r.parent_comment_id === comment.id),
+      }));
+      
+      setComments(threaded as any);
+    } catch (error) {
+      console.error('Error fetching comments:', error);
+    }
   };
 
   const handleSubmitComment = async () => {
     if (!user || !newComment.trim()) return;
 
     setIsLoading(true);
-    const { error } = await supabase.from('comments').insert({
-      post_id: postId,
-      author_id: user.id,
-      content: newComment.trim(),
-    });
-
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to post comment', variant: 'destructive' });
-    } else {
+    try {
+      await createComment(postId, newComment.trim());
       setNewComment('');
       onCommentAdded?.();
-      // Update post comments count
-      const { data: post } = await supabase.from('posts').select('comments_count').eq('id', postId).single();
-      if (post) {
-        await supabase.from('posts').update({ comments_count: post.comments_count + 1 }).eq('id', postId);
-      }
       fetchComments();
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to post comment', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleSubmitReply = async (parentId: string) => {
     if (!user || !replyContent.trim()) return;
 
     setIsLoading(true);
-    const { error } = await supabase.from('comments').insert({
-      post_id: postId,
-      author_id: user.id,
-      content: replyContent.trim(),
-      parent_comment_id: parentId,
-    });
-
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to post reply', variant: 'destructive' });
-    } else {
+    try {
+      await createComment(postId, replyContent.trim(), parentId);
       setReplyContent('');
       setReplyingTo(null);
       fetchComments();
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to post reply', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleLikeComment = async (commentId: string) => {
     if (!user) return;
     
-    const comment = comments.find(c => c.id === commentId);
-    if (comment) {
-      await supabase
-        .from('comments')
-        .update({ likes_count: (comment.likes_count || 0) + 1 })
-        .eq('id', commentId);
-      
+    try {
+      await likeComment(commentId);
       fetchComments();
+    } catch (error) {
+      console.error('Error liking comment:', error);
     }
   };
 

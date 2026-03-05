@@ -24,15 +24,17 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!user || !content.trim()) return;
+    if (!user || !content.trim() || loading) return; // Prevent double submission
 
     setLoading(true);
     try {
-      await createPost({
+      const newPost = await createPost({
         content: content.trim(),
         media_type: mediaType as any,
         media_url: mediaUrl || undefined,
       });
+      
+      console.log('Post created successfully:', newPost);
 
       toast({
         title: 'Post created!',
@@ -47,7 +49,7 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
       // Small delay to ensure database commit before refreshing
       setTimeout(() => {
         onPostCreated();
-      }, 100);
+      }, 500); // Increased from 100ms to 500ms
     } catch (error: any) {
       console.error('Post creation error:', error);
       toast({

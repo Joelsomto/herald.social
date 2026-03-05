@@ -160,7 +160,16 @@ export default function Feed() {
       }
       
       if (newPosts.length < 10) setHasMore(false);
-      setPosts(prev => [...prev, ...newPosts.map((p: any) => ({ ...p, author: p.author || {} }))]);
+      
+      // Map posts with proper author data handling
+      setPosts(prev => [...prev, ...newPosts.map((p: any) => {
+        const authorData = p.author || p.author_id || null;
+        return {
+          ...p,
+          author: typeof authorData === 'object' && authorData !== null ? authorData : null,
+          media_url: p.media_url || null
+        };
+      })]);
     } catch (error) {
       console.error('Error loading more posts:', error);
       setHasMore(false);
@@ -216,6 +225,7 @@ export default function Feed() {
 
       const duration = performance.now() - startTime;
       console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
+      console.log('fetchPosts raw response:', JSON.stringify(response, null, 2));
       
       // Handle both response formats: direct array or wrapped in {data: [...]}
       let postsArray: any[] = [];
@@ -226,12 +236,23 @@ export default function Feed() {
       }
       
       console.log(`fetchPosts: loaded ${postsArray.length} posts`);
+      
       if (postsArray.length > 0) {
-        setPosts(postsArray.map((p: any) => ({ 
-          ...p, 
-          author: p.author || {},
-          media_url: p.media_url || null
-        })));
+        // Log first post to see structure
+        console.log('fetchPosts first post structure:', JSON.stringify(postsArray[0], null, 2));
+        
+        setPosts(postsArray.map((p: any) => {
+          // Backend might return author data nested in author_id field
+          const authorData = p.author || p.author_id || null;
+          
+          console.log(`Post ${p.id} author data:`, authorData);
+          
+          return {
+            ...p,
+            author: typeof authorData === 'object' && authorData !== null ? authorData : null,
+            media_url: p.media_url || null
+          };
+        }));
       } else {
         setPosts([]);
       }

@@ -161,12 +161,24 @@ export default function Feed() {
       
       if (newPosts.length < 10) setHasMore(false);
       
-      // Map posts with proper author data handling
+      // Map posts using flattened author fields (same as fetchPosts)
       setPosts(prev => [...prev, ...newPosts.map((p: any) => {
-        const authorData = p.author || p.author_id || null;
+        const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
+        const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
+        const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
+        const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
+        const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
+        
         return {
           ...p,
-          author: typeof authorData === 'object' && authorData !== null ? authorData : null,
+          author: {
+            id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id,
+            username,
+            display_name,
+            avatar_url,
+            is_verified,
+            is_creator,
+          },
           media_url: p.media_url || null
         };
       })]);
@@ -242,14 +254,26 @@ export default function Feed() {
         console.log('fetchPosts first post structure:', JSON.stringify(postsArray[0], null, 2));
         
         setPosts(postsArray.map((p: any) => {
-          // Backend might return author data nested in author_id field
-          const authorData = p.author || p.author_id || null;
+          // Backend now returns flattened author fields at top level
+          // Priority: use flattened fields, fallback to nested author, then author_id
+          const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
+          const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
+          const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
+          const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
+          const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
           
-          console.log(`Post ${p.id} author data:`, authorData);
+          console.log(`Post ${p.id} - username: ${username}, display_name: ${display_name}`);
           
           return {
             ...p,
-            author: typeof authorData === 'object' && authorData !== null ? authorData : null,
+            author: {
+              id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id,
+              username,
+              display_name,
+              avatar_url,
+              is_verified,
+              is_creator,
+            },
             media_url: p.media_url || null
           };
         }));

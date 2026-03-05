@@ -46,10 +46,11 @@ export function CreatePostDialog({ open, onOpenChange, onPostCreated }: CreatePo
       setMediaUrl(null);
       onOpenChange(false);
       
-      // Small delay to ensure database commit before refreshing
+      // Backend now prevents duplicates with atomic transactions
+      // Small delay to ensure UI consistency
       setTimeout(() => {
         onPostCreated();
-      }, 500); // Increased from 100ms to 500ms
+      }, 200);
     } catch (error: any) {
       console.error('Post creation error:', error);
       toast({

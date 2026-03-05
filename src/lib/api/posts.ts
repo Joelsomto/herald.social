@@ -13,6 +13,12 @@ export type Post = {
   httn_earned: number;
   created_at: string;
   updated_at: string;
+  // Flattened author fields (added by backend for convenience)
+  username?: string;
+  display_name?: string;
+  avatar_url?: string | null;
+  is_verified?: boolean;
+  // Nested author object (legacy/fallback)
   author?: {
     id: string;
     username: string;

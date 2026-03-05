@@ -57,8 +57,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
           // Safety timeout - if checks take too long, assume completed
           const timeoutId = setTimeout(() => {
             console.warn('Onboarding check timeout - marking as completed');
+            setShowOnboarding(false);
             setCheckingOnboarding(false);
-          }, 10000);
+          }, 15000); // Increased to 15s for Render.com cold starts
           
           // Skip user_interests check - table may not exist yet
           // Assume completed if they have profile + wallet

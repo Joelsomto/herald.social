@@ -26,7 +26,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const loadCurrentUser = async () => {
       const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-      if (!token) {
+      
+      // Skip API call if no token or invalid token format
+      if (!token || token.trim().length < 10) {
         if (mounted) {
           setUser(null);
           setSession(null);
@@ -37,17 +39,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setLoading(true);
       try {
+        // Add timeout for Render.com cold starts (20 seconds max)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
+        
         const currentUser = await authGetCurrentUser();
+        clearTimeout(timeoutId);
+        
         if (!mounted) return;
         setUser(currentUser);
-        setSession(null);
+        setSession({ access_token: token, token_type: 'Bearer', expires_in: 3600 });
       } catch (error) {
         if (!mounted) return;
+        
+        // Handle auth errors
         if (error instanceof ApiError && error.status === 401) {
+          // Invalid token - clear it
+          localStorage.removeItem('access_token');
+          sessionStorage.removeItem('access_token');
           setUser(null);
           setSession(null);
-        } else {
+        } 
+        // Handle network errors silently (DNS, timeout, etc)
+        else if (error instanceof Error && 
+                 (error.name === 'AbortError' || 
+                  error.message.includes('Failed to fetch') ||
+                  error.message.includes('ERR_NAME_NOT_RESOLVED'))) {
+          console.warn('Network error loading user (backend may be cold starting):', error.message);
+          setUser(null);
+          setSession(null);
+        } 
+        // Other errors
+        else {
           console.error('Error loading current user:', error);
+          setUser(null);
+          setSession(null);
         }
       } finally {
         if (mounted) setLoading(false);
@@ -63,6 +89,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName: string, username: string) => {
     setLoading(true);
+    
+    // Show warning toast for potential cold start delay
+    const coldStartToast = setTimeout(() => {
+      toast({
+        title: 'Please wait...',
+        description: 'Server is starting up (this can take 10-15 seconds on first request)',
+      });
+    }, 3000); // Show after 3 seconds if still loading
+    
     try {
       const normalizedFullName = fullName.trim();
       const normalizedUsername = username.trim().toLowerCase();
@@ -73,6 +108,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         username: normalizedUsername,
         display_name: normalizedFullName || normalizedUsername,
       });
+      
+      clearTimeout(coldStartToast);
 
       setUser(response.user);
       const nextSession = response.session
@@ -95,6 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: 'Welcome! Your account is ready. Welcome bonus: 100 HTTN Points added.',
       });
     } catch (error: any) {
+      clearTimeout(coldStartToast);
+      
       const message = error?.message || 'Something went wrong. Please try again.';
       toast({
         title: 'Sign Up Failed',
@@ -109,8 +148,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     setLoading(true);
+    
+    // Show warning toast for potential cold start delay
+    const coldStartToast = setTimeout(() => {
+      toast({
+        title: 'Please wait...',
+        description: 'Server is starting up (this can take 10-15 seconds on first request)',
+      });
+    }, 3000); // Show after 3 seconds if still loading
+    
     try {
       const response = await authSignIn({ email, password });
+      clearTimeout(coldStartToast);
+      
       setUser(response.user);
       
       const nextSession = response.session
@@ -133,6 +183,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: 'Successfully signed in',
       });
     } catch (error: any) {
+      clearTimeout(coldStartToast);
+      
       const msg = error?.message || '';
       const description =
         msg.includes('Invalid login') || msg.includes('invalid') || msg.includes('credentials')

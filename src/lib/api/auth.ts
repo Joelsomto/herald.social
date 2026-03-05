@@ -39,9 +39,6 @@ export const authGetUser = async () => {
 };
 
 export const authGetCurrentUser = async () => {
-  try {
-    return await apiGet<ApiUser>('/auth/users/profiles/me/');
-  } catch {
-    return apiGet<ApiUser>('/auth/user/');
-  }
+  // Use the standardized /users/me/ endpoint
+  return apiGet<ApiUser>('/users/me/');
 };

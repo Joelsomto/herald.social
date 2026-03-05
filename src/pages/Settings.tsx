@@ -22,8 +22,10 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-// Supabase removed
 import { useToast } from '@/hooks/use-toast';
+import { getUserSettings, updateUserSettings } from '@/lib/api/users';
+import { authChangePassword } from '@/lib/api/auth';
+import { ApiError } from '@/lib/apiClient';
 
 interface UserSettings {
   notifications_enabled: boolean;
@@ -59,21 +61,17 @@ export default function Settings() {
   const fetchSettings = async () => {
     if (!user) return;
 
-    const { data } = await supabase
-      .from('user_settings')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (data) {
-      setSettings({
-        notifications_enabled: data.notifications_enabled,
-        email_notifications: data.email_notifications,
-        push_notifications: data.push_notifications,
-        dark_mode: data.dark_mode,
-        privacy_level: data.privacy_level,
-        language: data.language,
-      });
+    try {
+      const data = await getUserSettings();
+      if (data) {
+        setSettings(prev => ({
+          ...prev,
+          ...data
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch settings:', error);
+      // Use default settings if fetch fails
     }
   };
 
@@ -81,27 +79,21 @@ export default function Settings() {
     if (!user) return;
     setLoading(true);
 
-    const { error } = await supabase
-      .from('user_settings')
-      .upsert({
-        user_id: user.id,
-        ...settings,
-        updated_at: new Date().toISOString(),
-      });
-
-    setLoading(false);
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to save settings',
-        variant: 'destructive',
-      });
-    } else {
+    try {
+      await updateUserSettings(settings);
       toast({
         title: 'Settings Saved',
         description: 'Your preferences have been updated',
       });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Failed to save settings';
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -126,19 +118,11 @@ export default function Settings() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: error.message,
-        variant: 'destructive',
+    try {
+      await authChangePassword({
+        old_password: currentPassword,
+        new_password: newPassword,
       });
-    } else {
       toast({
         title: 'Password Changed',
         description: 'Your password has been updated successfully',
@@ -146,8 +130,17 @@ export default function Settings() {
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Failed to change password';
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
   const handleDeleteAccount = async () => {
     if (!confirm('Are you sure you want to delete your account? This action cannot be undone.')) {

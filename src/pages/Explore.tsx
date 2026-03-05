@@ -19,8 +19,10 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-// Supabase removed
 import { useAuth } from '@/hooks/useAuth';
+import { getPosts, getCurrentUserPosts } from '@/lib/api/posts';
+import { getTopUsers, getCurrentUserPosts as getUserPosts } from '@/lib/api/users';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { ScrollableReels } from '@/components/herald/ScrollableReels';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
@@ -85,26 +87,50 @@ export default function Explore() {
     setError(null);
     setLoading(true);
     try {
-      const [postsRes, creatorsRes, reelsRes, walletRes] = await Promise.all([
-        supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').order('likes_count', { ascending: false }).limit(10),
-        supabase.from('users').select('user_id, display_name, username, avatar_url, tier, reputation').order('reputation', { ascending: false }).limit(10),
-        supabase.from('posts').select('id, content, author_id, likes_count, comments_count, shares_count, httn_earned, media_url, media_type, created_at').eq('media_type', 'reel').order('created_at', { ascending: false }).limit(12),
-        user ? supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+      const [postsRes, creatorsRes, walletRes] = await Promise.all([
+        getPosts({ limit: 10, sort: '-likes_count' }).catch(() => ({ data: [], pagination: { page: 1, limit: 10, total: 0, total_pages: 0 } })),
+        getTopUsers({ limit: 10, sort: '-reputation' }).catch(() => []),
+        user ? getCurrentUserWallet().catch(() => null) : Promise.resolve(null),
       ]);
 
-      const authorIds = new Set<string>();
-      if (postsRes.data) postsRes.data.forEach(p => p.author_id && authorIds.add(p.author_id));
-      if (reelsRes.data) reelsRes.data.forEach(p => p.author_id && authorIds.add(p.author_id));
-      const ids = Array.from(authorIds);
-      const { data: profilesData } = ids.length
-        ? await supabase.from('users').select('user_id, display_name, username, avatar_url, tier, reputation').in('user_id', ids)
-        : { data: [] };
-      const profileMap = new Map((profilesData || []).map(p => [p.user_id, p as Creator]));
-
-      if (postsRes.data) setTrendingPosts(mapPostsWithAuthors(postsRes.data, profileMap));
-      if (creatorsRes.data) setTopCreators(creatorsRes.data as Creator[]);
-      if (reelsRes.data) setReels(mapPostsWithAuthors(reelsRes.data, profileMap));
-      if (walletRes?.data) setWallet(walletRes.data);
+      // Map posts - API returns author data in author_id field
+      if (postsRes.data) {
+        const mappedPosts = postsRes.data.map((p: any) => ({
+          id: p.id,
+          content: p.content,
+          media_url: p.media_url ?? null,
+          media_type: p.media_type ?? null,
+          likes_count: p.likes_count ?? 0,
+          comments_count: p.comments_count ?? 0,
+          shares_count: p.shares_count ?? 0,
+          httn_earned: p.httn_earned ?? 0,
+          author: typeof p.author_id === 'object' && p.author_id 
+            ? {
+                display_name: p.author_id.display_name || 'Unknown',
+                username: p.author_id.username || 'unknown',
+                avatar_url: p.author_id.avatar_url || null,
+                tier: p.author_id.tier || 'participant',
+                reputation: p.author_id.reputation || 0,
+              }
+            : defaultCreator,
+        }));
+        setTrendingPosts(mappedPosts);
+      }
+      
+      if (creatorsRes && Array.isArray(creatorsRes)) {
+        setTopCreators(creatorsRes);
+      }
+      
+      if (walletRes) setWallet({
+        httn_points: walletRes.httn_points,
+        httn_tokens: Number(walletRes.httn_tokens),
+        espees: Number(walletRes.espees),
+        pending_rewards: walletRes.pending_rewards,
+      });
+      
+      // TODO: Implement reels endpoint with media_type=reel filter
+      // GET /api/v1/posts/?media_type=reel
+      setReels([]);
     } catch (e) {
       setError('Failed to load explore. Pull down to retry.');
     } finally {

@@ -30,9 +30,10 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-// Supabase removed
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
+import { joinCommunity, leaveCommunity } from '@/lib/api/communities';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 
@@ -111,16 +112,9 @@ export default function Communities() {
     setError(null);
     setLoading(true);
     try {
-      const { data, error: err } = await supabase
-        .from('communities')
-        .select('*')
-        .order('member_count', { ascending: false });
-      if (err) throw err;
-      if (data && data.length > 0) {
-        setCommunities(data.map(mapCommunity));
-      } else {
-        setCommunities(demoCommunities);
-      }
+      // TODO: Implement communities endpoint in backend
+      // GET /api/v1/communities/
+      setCommunities(demoCommunities);
     } catch {
       setError('Failed to load communities.');
       setCommunities(demoCommunities);
@@ -131,17 +125,28 @@ export default function Communities() {
 
   const fetchJoinedCommunities = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('community_members')
-      .select('community_id')
-      .eq('user_id', user.id);
-    if (data) setJoinedCommunities(data.map(m => m.community_id));
+    try {
+      // TODO: Implement community members endpoint in backend
+      // GET /api/v1/users/me/communities/
+      setJoinedCommunities([]);
+    } catch (error) {
+      console.error('Failed to fetch joined communities:', error);
+    }
   }, [user]);
 
   const fetchWallet = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
-    if (data) setWallet(data);
+    try {
+      const data = await getCurrentUserWallet();
+      if (data) setWallet({
+        httn_points: data.httn_points,
+        httn_tokens: Number(data.httn_tokens),
+        espees: Number(data.espees),
+        pending_rewards: data.pending_rewards,
+      });
+    } catch (error) {
+      console.error('Failed to fetch wallet:', error);
+    }
   }, [user]);
 
   useEffect(() => {
@@ -158,28 +163,29 @@ export default function Communities() {
       return;
     }
 
-    if (joinedCommunities.includes(communityId)) {
-      // Leave community
-      const { error } = await supabase
-        .from('community_members')
-        .delete()
-        .eq('community_id', communityId)
-        .eq('user_id', user.id);
-
-      if (!error) {
-        setJoinedCommunities(prev => prev.filter(id => id !== communityId));
-        toast({ title: 'Left community', description: 'You have left this community.' });
+    try {
+      if (joinedCommunities.includes(communityId)) {
+        await leaveCommunity(communityId);
+        setJoinedCommunities(joinedCommunities.filter(id => id !== communityId));
+        toast({ 
+          title: 'Success', 
+          description: 'You have left the community.' 
+        });
+      } else {
+        await joinCommunity(communityId);
+        setJoinedCommunities([...joinedCommunities, communityId]);
+        toast({ 
+          title: 'Success', 
+          description: 'You have joined the community.' 
+        });
       }
-    } else {
-      // Join community
-      const { error } = await supabase
-        .from('community_members')
-        .insert({ community_id: communityId, user_id: user.id });
-
-      if (!error) {
-        setJoinedCommunities(prev => [...prev, communityId]);
-        toast({ title: 'Joined!', description: 'Welcome to the community!' });
-      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Failed to update community membership';
+      toast({ 
+        title: 'Error', 
+        description: errorMsg,
+        variant: 'destructive'
+      });
     }
   };
 
@@ -190,25 +196,13 @@ export default function Communities() {
       return;
     }
 
-    const { data, error } = await supabase
-      .from('communities')
-      .insert({
-        name: newCommunity.name,
-        description: newCommunity.description,
-        category: newCommunity.category,
-        is_private: newCommunity.is_private,
-        created_by: user.id,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      toast({ title: 'Error', description: 'Failed to create community.' });
-    } else if (data) {
-      setCommunities(prev => [mapCommunity(data), ...prev]);
+    try {
+      // TODO: Implement create community endpoint
+      // POST /api/v1/communities/
+      toast({ title: 'Coming Soon', description: 'Create community feature will be available soon.' });
       setCreateDialogOpen(false);
-      setNewCommunity({ name: '', description: '', category: 'general', is_private: false });
-      toast({ title: 'Success!', description: 'Community created successfully.' });
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to create community.' });
     }
   };
 

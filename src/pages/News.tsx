@@ -21,8 +21,8 @@ import {
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
-// Supabase removed
 import { useAuth } from '@/hooks/useAuth';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 import { formatDistanceToNow } from 'date-fns';
@@ -178,8 +178,12 @@ export default function News() {
 
   const fetchWallet = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
-    if (data) setWallet(data);
+    try {
+      const data = await getCurrentUserWallet();
+      if (data) setWallet(data);
+    } catch (error) {
+      console.error('Failed to fetch wallet:', error);
+    }
   }, [user]);
 
   useEffect(() => {

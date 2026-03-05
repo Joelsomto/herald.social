@@ -151,8 +151,16 @@ export default function Feed() {
       const currentPage = Math.floor(posts.length / 20) + 1;
       const response = await getPosts({ page: currentPage + 1, limit: 10, sort: '-created_at' });
       
-      if (response.data.length < 10) setHasMore(false);
-      setPosts(prev => [...prev, ...response.data.map((p: any) => ({ ...p, author: p.author || {} }))]);
+      // Handle both response formats
+      let newPosts: any[] = [];
+      if (Array.isArray(response)) {
+        newPosts = response;
+      } else if (response && 'data' in response && Array.isArray(response.data)) {
+        newPosts = response.data;
+      }
+      
+      if (newPosts.length < 10) setHasMore(false);
+      setPosts(prev => [...prev, ...newPosts.map((p: any) => ({ ...p, author: p.author || {} }))]);
     } catch (error) {
       console.error('Error loading more posts:', error);
       setHasMore(false);
@@ -208,10 +216,24 @@ export default function Feed() {
 
       const duration = performance.now() - startTime;
       console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
-      console.log(`fetchPosts: loaded ${response.data?.length ?? 0} posts`);
       
-      if (response.data) {
-        setPosts(response.data.map((p: any) => ({ ...p, author: p.author || {} })));
+      // Handle both response formats: direct array or wrapped in {data: [...]}
+      let postsArray: any[] = [];
+      if (Array.isArray(response)) {
+        postsArray = response;
+      } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
+        postsArray = response.data;
+      }
+      
+      console.log(`fetchPosts: loaded ${postsArray.length} posts`);
+      if (postsArray.length > 0) {
+        setPosts(postsArray.map((p: any) => ({ 
+          ...p, 
+          author: p.author || {},
+          media_url: p.media_url || null
+        })));
+      } else {
+        setPosts([]);
       }
     } catch (error) {
       console.error('fetchPosts error:', error instanceof Error ? error.message : error);

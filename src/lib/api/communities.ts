@@ -48,9 +48,11 @@ export const createCommunity = async (payload: {
 };
 
 export const joinCommunity = async (communityId: string) => {
-  return apiPost<{ success: boolean; member_count: number }>(`/communities/${communityId}/join`);
+  return apiPost<{ success: boolean; member_count: number }>(`/communities/${communityId}/join/`, {
+    body: {},
+  });
 };
 
 export const leaveCommunity = async (communityId: string) => {
-  return apiDelete<{ success: boolean; member_count: number }>(`/communities/${communityId}/join`);
+  return apiDelete<{ success: boolean; member_count: number }>(`/communities/${communityId}/join/`);
 };

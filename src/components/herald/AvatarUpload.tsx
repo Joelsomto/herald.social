@@ -2,8 +2,8 @@ import { useState, useRef } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Camera, Loader2, X } from 'lucide-react';
-// Supabase removed
 import { useToast } from '@/hooks/use-toast';
+import { uploadAvatar } from '@/lib/api/users';
 
 interface AvatarUploadProps {
   userId: string;
@@ -54,17 +54,29 @@ export function AvatarUpload({ userId, currentAvatarUrl, displayName, onAvatarCh
     const objectUrl = URL.createObjectURL(file);
     setPreviewUrl(objectUrl);
 
-    // TODO: Integrate avatar upload with new backend
+    // Upload to backend
     setUploading(true);
-    setTimeout(() => {
-      // Simulate upload success for now
-      setUploading(false);
-      onAvatarChange(objectUrl);
+    try {
+      const result = await uploadAvatar(file);
+      if (result.success) {
+        onAvatarChange(result.avatar_url);
+        toast({
+          title: 'Success',
+          description: 'Your profile picture has been updated',
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload avatar';
       toast({
-        title: 'Avatar Updated',
-        description: 'Your profile picture has been updated (local preview only)',
+        title: 'Upload Failed',
+        description: message,
+        variant: 'destructive',
       });
-    }, 1200);
+      // Revert preview on error
+      setPreviewUrl(null);
+    } finally {
+      setUploading(false);
+    }
   };
 
   const triggerFileInput = () => {

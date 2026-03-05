@@ -32,6 +32,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, updateCurrentUser } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { getCurrentUserPosts } from '@/lib/api/posts';
+import { ApiError } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { AvatarUpload } from '@/components/herald/AvatarUpload';
 import { useNavigate } from 'react-router-dom';
@@ -175,24 +176,21 @@ export default function Profile() {
     if (!user || !profile) return;
 
     const newValue = !profile.is_creator;
-    const { error } = await supabase
-      .from('users')
-      .update({ is_creator: newValue })
-      .eq('user_id', user.id);
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to update creator mode',
-        variant: 'destructive',
-      });
-    } else {
+    try {
+      await updateCurrentUser({ is_creator: newValue });
       setProfile({ ...profile, is_creator: newValue });
       toast({
         title: newValue ? 'Creator Mode Enabled' : 'Creator Mode Disabled',
         description: newValue
           ? 'You now have access to creator dashboard and tools!'
           : 'Switched back to normal profile',
+      });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Failed to update creator mode';
+      toast({
+        title: 'Error',
+        description: message,
+        variant: 'destructive',
       });
     }
   };

@@ -20,8 +20,10 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-// Supabase removed
 import { useToast } from '@/hooks/use-toast';
+import { getCurrentUserWallet, convertPointsToTokens, transferWallet, getWalletTransactions } from '@/lib/api/wallets';
+import { updateCurrentUser } from '@/lib/api/users';
+import { ApiError } from '@/lib/apiClient';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 
 interface WalletData {
@@ -64,25 +66,30 @@ export default function Wallet() {
 
   const fetchWallet = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('wallets')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    if (data) setWallet(data);
+    try {
+      const data = await getCurrentUserWallet();
+      if (data) setWallet({
+        httn_points: data.httn_points,
+        httn_tokens: Number(data.httn_tokens),
+        espees: Number(data.espees),
+        pending_rewards: data.pending_rewards,
+      });
+    } catch (error) {
+      console.error('Failed to fetch wallet:', error);
+    }
   };
 
   const fetchTransactions = async () => {
     if (!user) return;
     setLoadingTransactions(true);
-    const { data } = await supabase
-      .from('wallet_transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (data) setTransactions(data);
-    setLoadingTransactions(false);
+    try {
+      const data = await getWalletTransactions();
+      setTransactions(data.results || []);
+    } catch (error) {
+      console.error('Failed to fetch transactions:', error);
+    } finally {
+      setLoadingTransactions(false);
+    }
   };
 
   const handleConvertPoints = async () => {
@@ -99,52 +106,20 @@ export default function Wallet() {
 
     setConverting(true);
     try {
-      const tokensToAdd = amount / CONVERSION_RATE;
-      const newPoints = wallet.httn_points - amount;
-      const newTokens = Number(wallet.httn_tokens) + tokensToAdd;
-
-      // Update wallet
-      const { error: walletError } = await supabase
-        .from('wallets')
-        .update({
-          httn_points: newPoints,
-          httn_tokens: newTokens,
-        })
-        .eq('user_id', user.id);
-
-      if (walletError) throw walletError;
-
-      // Record transaction - points deducted
-      await supabase.from('wallet_transactions').insert({
-        user_id: user.id,
-        type: 'convert_out',
-        amount: -amount,
-        token_type: 'points',
-        description: `Converted to ${tokensToAdd.toFixed(3)} HTTN Tokens`,
-      });
-
-      // Record transaction - tokens added
-      await supabase.from('wallet_transactions').insert({
-        user_id: user.id,
-        type: 'convert_in',
-        amount: tokensToAdd,
-        token_type: 'tokens',
-        description: `Converted from ${amount.toLocaleString()} HTTN Points`,
-      });
-
-      toast({
-        title: 'Conversion Successful',
-        description: `Converted ${amount.toLocaleString()} Points to ${tokensToAdd.toFixed(3)} Tokens`,
-      });
-
-      setConvertAmount('');
-      fetchWallet();
-      fetchTransactions();
-    } catch (error: any) {
-      console.error('Conversion error:', error);
+      const result = await convertPointsToTokens({ amount });
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: `Converted ${amount} points to tokens`,
+        });
+        setConvertAmount('');
+        await fetchWallet();
+      }
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'An error occurred during conversion';
       toast({
         title: 'Conversion Failed',
-        description: error.message || 'An error occurred during conversion',
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -167,86 +142,28 @@ export default function Wallet() {
 
     setSending(true);
     try {
-      // Find recipient by username
-      const username = sendUsername.replace('@', '');
-      const { data: recipientProfile, error: findError } = await supabase
-        .from('users')
-        .select('user_id, display_name')
-        .eq('username', username)
-        .maybeSingle();
-
-      if (findError || !recipientProfile) {
-        throw new Error('User not found');
-      }
-
-      if (recipientProfile.user_id === user.id) {
-        throw new Error("You can't send HTTN to yourself");
-      }
-
-      // Get recipient's wallet
-      const { data: recipientWallet } = await supabase
-        .from('wallets')
-        .select('httn_points')
-        .eq('user_id', recipientProfile.user_id)
-        .maybeSingle();
-
-      if (!recipientWallet) {
-        throw new Error('Recipient wallet not found');
-      }
-
-      // Deduct from sender
-      await supabase
-        .from('wallets')
-        .update({ httn_points: wallet.httn_points - amount })
-        .eq('user_id', user.id);
-
-      // Add to recipient
-      await supabase
-        .from('wallets')
-        .update({ httn_points: recipientWallet.httn_points + amount })
-        .eq('user_id', recipientProfile.user_id);
-
-      // Record sender transaction
-      await supabase.from('wallet_transactions').insert({
-        user_id: user.id,
-        type: 'send',
-        amount: -amount,
-        token_type: 'points',
-        description: `Sent to @${username}`,
+      // TODO: Implement username to user ID lookup endpoint
+      // For now, we need the recipient_id. This could be validated/looked up from a search endpoint
+      const result = await transferWallet({
+        recipient_id: sendUsername, // In production, lookup user by username first
+        amount,
+        currency: 'points'
       });
-
-      // Create notification for recipient
-      const { data: senderProfile } = await supabase
-        .from('users')
-        .select('display_name, avatar_url, is_verified')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      await supabase.from('notifications').insert({
-        user_id: recipientProfile.user_id,
-        type: 'tip',
-        title: 'HTTN Received!',
-        message: `sent you ${amount} HTTN Points!`,
-        actor_id: user.id,
-        actor_name: senderProfile?.display_name || 'Someone',
-        actor_avatar: senderProfile?.avatar_url,
-        actor_verified: senderProfile?.is_verified || false,
-      });
-
-      toast({
-        title: 'HTTN Sent!',
-        description: `Successfully sent ${amount} HTTN to @${username}`,
-      });
-
-      setSendUsername('');
-      setSendAmount('');
-      fetchWallet();
-      fetchTransactions();
-    } catch (error: any) {
-      console.error('Send error:', error);
+      
+      if (result.success) {
+        toast({
+          title: 'Success',
+          description: `Transferred ${amount} HTTN Points to ${sendUsername}`,
+        });
+        setSendUsername('');
+        setSendAmount('');
+        await fetchWallet();
+      }
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'An error occurred during transfer';
       toast({
         title: 'Transfer Failed',
-        description: error.message || 'An error occurred during transfer',
+        description: message,
         variant: 'destructive',
       });
     } finally {

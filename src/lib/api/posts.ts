@@ -45,7 +45,7 @@ export const getPosts = async (params?: {
   if (params?.media_type) queryParams.append('media_type', params.media_type);
 
   const query = queryParams.toString();
-  return apiGet<PostsResponse>(`/posts${query ? `?${query}` : ''}`);
+  return apiGet<PostsResponse | Post[]>(`/posts/${query ? `?${query}` : ''}`);
 };
 
 export const getCurrentUserPosts = async (params?: { page?: number; limit?: number }) => {
@@ -54,14 +54,7 @@ export const getCurrentUserPosts = async (params?: { page?: number; limit?: numb
   if (params?.limit) queryParams.append('limit', params.limit.toString());
 
   const query = queryParams.toString();
-  try {
-    return await apiGet<PostsResponse>(`/auth/users/profiles/me/posts/${query ? `?${query}` : ''}`);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return apiGet<PostsResponse>(`/posts${query ? `?${query}` : ''}`);
-    }
-    throw error;
-  }
+  return apiGet<PostsResponse>(`/users/me/posts/${query ? `?${query}` : ''}`);
 };
 
 export const createPost = async (payload: {
@@ -73,7 +66,7 @@ export const createPost = async (payload: {
 };
 
 export const deletePost = async (postId: string) => {
-  return apiDelete<{ success: boolean }>(`/posts/${postId}`);
+  return apiDelete<{ success: boolean }>(`/posts/${postId}/`);
 };
 
 export const likePost = async (postId: string) => {
@@ -81,7 +74,7 @@ export const likePost = async (postId: string) => {
 };
 
 export const unlikePost = async (postId: string) => {
-  return apiDelete<{ success: boolean; likes_count: number }>(`/posts/${postId}/like`);
+  return apiDelete<{ success: boolean; likes_count: number }>(`/posts/${postId}/like/`);
 };
 
 export const sharePost = async (postId: string) => {
@@ -89,5 +82,7 @@ export const sharePost = async (postId: string) => {
 };
 
 export const bookmarkPost = async (postId: string) => {
-  return apiPost<{ success: boolean }>(`/posts/${postId}/bookmark/`);
+  return apiPost<{ success: boolean }>(`/posts/${postId}/bookmark/`, {
+    body: {},
+  });
 };

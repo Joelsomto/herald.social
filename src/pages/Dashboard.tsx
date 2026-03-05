@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
+import { getCurrentUser, getCurrentUserPosts } from '@/lib/api/users';
 import { ContentInsights } from '@/components/herald/ContentInsights';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { 
@@ -76,17 +78,24 @@ export default function Dashboard() {
     setError(null);
     setLoading(true);
     try {
-      const [walletRes, profileRes, earningsRes, postsRes] = await Promise.all([
-        supabase.from('wallets').select('*').eq('user_id', user.id).maybeSingle(),
-        supabase.from('users').select('*').eq('user_id', user.id).maybeSingle(),
-        supabase.from('earnings_history').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(30),
-        supabase.from('posts').select('*').eq('author_id', user.id).order('created_at', { ascending: false }),
+      const [walletData, profileData, postsData] = await Promise.all([
+        getCurrentUserWallet().catch(() => null),
+        getCurrentUser().catch(() => null),
+        getCurrentUserPosts().catch(() => ({ data: [] })),
       ]);
 
-      if (walletRes.data) setWallet(walletRes.data);
-      if (profileRes.data) setProfile(profileRes.data);
-      if (earningsRes.data) setEarnings(earningsRes.data);
-      if (postsRes.data) setPosts(postsRes.data);
+      if (walletData) setWallet({
+        httn_points: walletData.httn_points,
+        httn_tokens: Number(walletData.httn_tokens),
+        espees: Number(walletData.espees),
+        pending_rewards: walletData.pending_rewards,
+      });
+      if (profileData) setProfile(profileData);
+      if (postsData?.data) setPosts(postsData.data);
+      
+      // TODO: Implement earnings history endpoint in backend
+      // GET /api/v1/users/me/earnings/
+      setEarnings([]);
     } catch (e) {
       setError('Failed to load dashboard.');
     } finally {

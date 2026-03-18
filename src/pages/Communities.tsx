@@ -33,7 +33,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { joinCommunity, leaveCommunity } from '@/lib/api/communities';
+import { joinCommunity, leaveCommunity, getCommunities } from '@/lib/api/communities';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 
@@ -66,16 +66,7 @@ const categoryLabels: Record<string, string> = {
   outreach: 'Outreach & Ministry',
 };
 
-const demoCommunities: Community[] = [
-  { id: '1', name: 'Herald Creators Hub', description: 'Connect with fellow content creators and share strategies for building your audience.', category: 'general', image_url: null, member_count: 2450, is_private: false, created_by: '' },
-  { id: '2', name: 'Prayer Warriors', description: 'A dedicated community for prayer requests and intercession.', category: 'faith', image_url: null, member_count: 1890, is_private: false, created_by: '' },
-  { id: '3', name: 'Rhapsody of Realities Study', description: 'Daily study and discussion of Rhapsody of Realities devotional.', category: 'bible_study', image_url: null, member_count: 3200, is_private: false, created_by: '' },
-  { id: '4', name: 'Worship Leaders Network', description: 'For worship leaders and musicians to share resources and collaborate.', category: 'worship', image_url: null, member_count: 980, is_private: false, created_by: '' },
-  { id: '5', name: 'Healing School Testimonies', description: 'Share and celebrate healing testimonies from around the world.', category: 'faith', image_url: null, member_count: 4500, is_private: false, created_by: '' },
-  { id: '6', name: 'Youth Ministry Leaders', description: 'Resources and discussions for youth ministry leaders.', category: 'outreach', image_url: null, member_count: 1250, is_private: false, created_by: '' },
-  { id: '7', name: 'Daily Inspiration', description: 'Start your day with uplifting messages and encouragement.', category: 'inspiration', image_url: null, member_count: 5670, is_private: false, created_by: '' },
-  { id: '8', name: 'Partner Churches', description: 'Private community for partner church leaders.', category: 'general', image_url: null, member_count: 340, is_private: true, created_by: '' },
-];
+
 
 function mapCommunity(row: { id: string; name: string; description: string | null; category: string; image_url: string | null; member_count: number | null; is_private: boolean | null; created_by: string }): Community {
   return {
@@ -112,12 +103,11 @@ export default function Communities() {
     setError(null);
     setLoading(true);
     try {
-      // TODO: Implement communities endpoint in backend
-      // GET /api/v1/communities/
-      setCommunities(demoCommunities);
+      const res = await getCommunities({ limit: 100 });
+      setCommunities(res.data || []);
     } catch {
       setError('Failed to load communities.');
-      setCommunities(demoCommunities);
+      setCommunities([]);
     } finally {
       setLoading(false);
     }
@@ -126,10 +116,17 @@ export default function Communities() {
   const fetchJoinedCommunities = useCallback(async () => {
     if (!user) return;
     try {
-      // TODO: Implement community members endpoint in backend
+      // Try to fetch joined communities from backend if endpoint exists
       // GET /api/v1/users/me/communities/
-      setJoinedCommunities([]);
+      const res = await fetch('/api/v1/users/me/communities/', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` } });
+      if (res.ok) {
+        const data = await res.json();
+        setJoinedCommunities(Array.isArray(data) ? data.map((c: any) => c.id) : []);
+      } else {
+        setJoinedCommunities([]);
+      }
     } catch (error) {
+      setJoinedCommunities([]);
       console.error('Failed to fetch joined communities:', error);
     }
   }, [user]);

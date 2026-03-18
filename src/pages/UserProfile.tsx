@@ -50,58 +50,7 @@ interface Post {
   created_at: string;
 }
 
-// Dummy verified creator profile
-const dummyCreator: Profile = {
-  id: 'dummy-creator-1',
-  user_id: 'dummy-user-1',
-  username: 'herald_official',
-  display_name: 'Herald Official',
-  bio: '✨ Official Herald account. Building the future of Web3 social. Earn while you engage! 🚀',
-  avatar_url: null,
-  followers_count: 125400,
-  following_count: 142,
-  is_verified: true,
-  is_creator: true,
-  tier: 'partner',
-  reputation: 50000,
-  created_at: '2024-01-01T00:00:00Z',
-};
 
-const dummyPosts: Post[] = [
-  {
-    id: 'dp1',
-    content: '🎉 Big announcement! We just crossed 100K active creators on Herald. Thank you all for being part of this journey. More rewards coming soon! #HeraldCommunity',
-    media_url: null,
-    media_type: null,
-    likes_count: 4520,
-    comments_count: 892,
-    shares_count: 1203,
-    httn_earned: 2500,
-    created_at: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: 'dp2',
-    content: 'The future of social media is here. Where your attention creates value, not just for platforms, but for YOU. Welcome to Herald.',
-    media_url: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=800',
-    media_type: 'image',
-    likes_count: 3200,
-    comments_count: 456,
-    shares_count: 890,
-    httn_earned: 1800,
-    created_at: new Date(Date.now() - 86400000).toISOString(),
-  },
-  {
-    id: 'dp3',
-    content: 'Weekly creator spotlight! 🌟 Shoutout to @creativestudio for amazing content this week. Keep creating, keep earning!',
-    media_url: null,
-    media_type: null,
-    likes_count: 2100,
-    comments_count: 234,
-    shares_count: 445,
-    httn_earned: 950,
-    created_at: new Date(Date.now() - 172800000).toISOString(),
-  },
-];
 
 export default function UserProfile() {
   const { username } = useParams<{ username: string }>();
@@ -128,12 +77,7 @@ export default function UserProfile() {
     setLoading(true);
     setError(null);
 
-    if (username === 'herald_official') {
-      setProfile(dummyCreator);
-      setPosts(dummyPosts);
-      setLoading(false);
-      return;
-    }
+
 
     try {
       const profileData = await getUserByUsername(username);

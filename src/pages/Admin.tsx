@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { getTopUsers } from '@/lib/api/users';
+import { getPosts } from '@/lib/api/posts';
+import { getWalletTransactions } from '@/lib/api/wallets';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,23 +97,31 @@ export default function Admin() {
     setError(null);
     setLoading(true);
     try {
-      // TODO: Integrate admin dashboard fetch with new backend
-      const usersRes = { data: [] };
-      const postsRes = { data: [] };
-      const walletsRes = { data: [] };
+      // Fetch users
+      const usersRes = await getTopUsers({ limit: 100 });
+      // Map ApiUser[] to UserRow[]
+      const mappedUsers = (usersRes || []).map((u) => ({
+        id: u.id,
+        display_name: u.display_name,
+        username: u.username,
+        is_verified: u.is_verified ?? false,
+        is_creator: u.is_creator ?? false,
+        created_at: u.created_at || '',
+        user_id: u.id,
+      }));
+      setUsers(mappedUsers);
+      setStats(prev => ({ ...prev, totalUsers: mappedUsers.length, activeUsers: Math.floor(mappedUsers.length * 0.7) }));
 
-      if (usersRes.data) {
-        setUsers(usersRes.data);
-        setStats(prev => ({ ...prev, totalUsers: usersRes.data.length, activeUsers: Math.floor(usersRes.data.length * 0.7) }));
-      }
-      if (postsRes.data) {
-        setPosts(postsRes.data);
-        setStats(prev => ({ ...prev, totalPosts: postsRes.data.length }));
-      }
-      if (walletsRes.data) {
-        setStats(prev => ({ ...prev, totalTransactions: walletsRes.data.length * 10 }));
-      }
-    } catch {
+      // Fetch posts
+      const postsRes = await getPosts({ limit: 100 });
+      const postsData = Array.isArray(postsRes) ? postsRes : postsRes?.data || [];
+      setPosts(postsData);
+      setStats(prev => ({ ...prev, totalPosts: postsData.length }));
+
+      // Fetch wallet transactions
+      const walletsRes = await getWalletTransactions({ limit: 100 });
+      setStats(prev => ({ ...prev, totalTransactions: walletsRes?.data?.length || 0 }));
+    } catch (err) {
       setError('Failed to load dashboard data.');
     } finally {
       setLoading(false);
@@ -118,9 +129,8 @@ export default function Admin() {
   };
 
   const handleVerifyUser = async (userId: string) => {
-    // TODO: Integrate user verification with new backend
-    // Placeholder for future integration
-    toast({ title: 'User Verified', description: 'User has been verified successfully' });
+    // TODO: Integrate user verification with new backend endpoint if available
+    toast({ title: 'User Verified', description: 'User has been verified successfully (mocked)' });
     fetchDashboardData();
   };
 

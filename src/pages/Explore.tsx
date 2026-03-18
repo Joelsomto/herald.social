@@ -128,9 +128,32 @@ export default function Explore() {
         pending_rewards: walletRes.pending_rewards,
       });
       
-      // TODO: Implement reels endpoint with media_type=reel filter
-      // GET /api/v1/posts/?media_type=reel
-      setReels([]);
+      // Fetch reels with media_type=reel
+      const reelsRes = await getPosts({ limit: 12, media_type: 'reel' }).catch(() => ({ data: [] }));
+      if (reelsRes.data) {
+        const mappedReels = reelsRes.data.map((p: any) => ({
+          id: p.id,
+          content: p.content,
+          media_url: p.media_url ?? null,
+          media_type: p.media_type ?? null,
+          likes_count: p.likes_count ?? 0,
+          comments_count: p.comments_count ?? 0,
+          shares_count: p.shares_count ?? 0,
+          httn_earned: p.htn_earned ?? 0,
+          author: typeof p.author_id === 'object' && p.author_id 
+            ? {
+                display_name: p.author_id.display_name || 'Unknown',
+                username: p.author_id.username || 'unknown',
+                avatar_url: p.author_id.avatar_url || null,
+                tier: p.author_id.tier || 'participant',
+                reputation: p.author_id.reputation || 0,
+              }
+            : defaultCreator,
+        }));
+        setReels(mappedReels);
+      } else {
+        setReels([]);
+      }
     } catch (e) {
       setError('Failed to load explore. Pull down to retry.');
     } finally {

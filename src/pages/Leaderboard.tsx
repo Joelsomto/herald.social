@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { getTopUsers } from '@/lib/api/users';
+import { getUserWallet } from '@/lib/api/wallets';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,62 +58,33 @@ export default function Leaderboard() {
     setError(null);
     setLoading(true);
     try {
-    // Fetch reputation leaders
-    const { data: repData } = await supabase
-      .from('users')
-      .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
-      .order('reputation', { ascending: false })
-      .limit(50);
-
-    if (repData) {
-      setReputationLeaders(repData as LeaderboardEntry[]);
-      if (user) {
-        const userIndex = repData.findIndex(p => p.user_id === user.id);
+      // Fetch reputation leaders
+      const repData = await getTopUsers({ limit: 50, sort: '-reputation' });
+      setReputationLeaders(repData || []);
+      if (user && repData) {
+        const userIndex = repData.findIndex(p => p.user_id === user.id || p.id === user.id);
         if (userIndex !== -1) setUserRank(userIndex + 1);
       }
-    }
 
-    // Fetch engagement leaders
-    const { data: engData } = await supabase
-      .from('users')
-      .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
-      .order('total_engagement', { ascending: false })
-      .limit(50);
+      // Fetch engagement leaders
+      const engData = await getTopUsers({ limit: 50, sort: '-total_engagement' });
+      setEngagementLeaders(engData || []);
 
-    if (engData) {
-      setEngagementLeaders(engData as LeaderboardEntry[]);
-    }
-
-    // Fetch points leaders (join with wallets)
-    const { data: pointsData } = await supabase
-      .from('wallets')
-      .select(`
-        httn_points,
-        user_id
-      `)
-      .order('httn_points', { ascending: false })
-      .limit(50);
-
-    if (pointsData) {
-      // Get profiles for these users
-      const userIds = pointsData.map(w => w.user_id);
-      const { data: profilesData } = await supabase
-        .from('users')
-        .select('user_id, display_name, username, avatar_url, tier, reputation, is_verified, total_engagement')
-        .in('user_id', userIds);
-
-      if (profilesData) {
-        const combined = pointsData.map(wallet => {
-          const profile = profilesData.find(p => p.user_id === wallet.user_id);
-          return {
-            ...profile,
-            httn_points: wallet.httn_points,
-          } as LeaderboardEntry;
-        });
-        setPointsLeaders(combined);
-      }
-    }
-  } catch (e) {
+      // Fetch points leaders (simulate by sorting top users by httn_points if available)
+      // If backend provides a points leaderboard endpoint, use it here
+      const pointsCandidates = await getTopUsers({ limit: 100 });
+      const pointsWithWallets = await Promise.all(
+        (pointsCandidates || []).map(async (u) => {
+          try {
+            const wallet = await getUserWallet(u.id || u.user_id);
+            return { ...u, httn_points: wallet?.httn_points || 0 };
+          } catch {
+            return { ...u, httn_points: 0 };
+          }
+        })
+      );
+      setPointsLeaders(pointsWithWallets.sort((a, b) => (b.httn_points || 0) - (a.httn_points || 0)).slice(0, 50));
+    } catch (e) {
       setError('Failed to load leaderboard.');
     } finally {
       setLoading(false);

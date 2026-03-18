@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { getCurrentUser, getCurrentUserPosts } from '@/lib/api/users';
+// import { getEarnings } from '@/lib/api/earnings'; // Uncomment if endpoint exists
 import { ContentInsights } from '@/components/herald/ContentInsights';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { 
@@ -93,9 +94,11 @@ export default function Dashboard() {
       if (profileData) setProfile(profileData);
       if (postsData?.data) setPosts(postsData.data);
       
-      // TODO: Implement earnings history endpoint in backend
-      // GET /api/v1/users/me/earnings/
-      setEarnings([]);
+      // Fetch earnings from backend if endpoint exists
+      // Uncomment and implement getEarnings if available
+      // const earningsRes = await getEarnings();
+      // setEarnings(earningsRes.data || []);
+      setEarnings([]); // Remove this line when real endpoint is available
     } catch (e) {
       setError('Failed to load dashboard.');
     } finally {

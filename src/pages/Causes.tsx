@@ -32,6 +32,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
+import { getCauses } from '@/lib/api/causes';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
 
 interface Cause {
   id: string;
@@ -63,63 +65,7 @@ const categoryLabels: Record<string, string> = {
   scripture: 'Scripture Distribution',
 };
 
-const demoCauses: Cause[] = [
-  {
-    id: '1',
-    title: 'Healing School Campus Expansion',
-    description: 'Support the expansion of the Healing School campus to accommodate more students from around the world seeking healing and training.',
-    category: 'healing_school',
-    image_url: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=400',
-    goal_amount: 500000,
-    raised_amount: 342500,
-    status: 'active',
-    created_by: '',
-  },
-  {
-    id: '2',
-    title: 'Rhapsody for Africa Initiative',
-    description: 'Distribute 10 million copies of Rhapsody of Realities across African nations to reach more souls with the gospel.',
-    category: 'scripture',
-    image_url: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=400',
-    goal_amount: 250000,
-    raised_amount: 189000,
-    status: 'active',
-    created_by: '',
-  },
-  {
-    id: '3',
-    title: 'Build 100 Churches Campaign',
-    description: 'Help establish 100 new churches in underserved communities to spread the message of hope and salvation.',
-    category: 'church_building',
-    image_url: 'https://images.unsplash.com/photo-1438032005730-c779502df39b?w=400',
-    goal_amount: 1000000,
-    raised_amount: 456000,
-    status: 'active',
-    created_by: '',
-  },
-  {
-    id: '4',
-    title: 'Youth Education Scholarship Fund',
-    description: 'Provide scholarships for young believers to pursue higher education and become leaders in their fields.',
-    category: 'education',
-    image_url: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=400',
-    goal_amount: 150000,
-    raised_amount: 98000,
-    status: 'active',
-    created_by: '',
-  },
-  {
-    id: '5',
-    title: 'Global Outreach Mission 2026',
-    description: 'Support missionaries in reaching unreached regions with the gospel message through various outreach programs.',
-    category: 'outreach',
-    image_url: 'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=400',
-    goal_amount: 300000,
-    raised_amount: 275000,
-    status: 'active',
-    created_by: '',
-  },
-];
+
 
 // TODO: Integrate causes fetch with new backend
 // For now, use demoCauses
@@ -142,9 +88,15 @@ export default function Causes() {
   const fetchCauses = useCallback(async () => {
     setError(null);
     setLoading(true);
-    // TODO: Integrate causes fetch with new backend
-    setCauses(demoCauses);
-    setLoading(false);
+    try {
+      const res = await getCauses({ limit: 100 });
+      setCauses(res.data || []);
+    } catch {
+      setError('Failed to load causes.');
+      setCauses([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
       // TODO: Integrate donation with new backend
       toast({ 
@@ -152,8 +104,18 @@ export default function Causes() {
         description: `Your donation of ${amount} HTTN to "${selectedCause.title}" has been recorded.` 
       });
   const fetchWallet = useCallback(async () => {
-    // TODO: Integrate wallet fetch with new backend
-    setWallet(null);
+    if (!user) return;
+    try {
+      const data = await getCurrentUserWallet();
+      if (data) setWallet({
+        httn_points: data.httn_points,
+        httn_tokens: Number(data.httn_tokens),
+        espees: Number(data.espees),
+        pending_rewards: data.pending_rewards,
+      });
+    } catch (error) {
+      setWallet(null);
+    }
   }, [user]);
 
   useEffect(() => {

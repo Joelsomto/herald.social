@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
+import { getNews } from '@/lib/api/news';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 import { formatDistanceToNow } from 'date-fns';
@@ -53,96 +54,7 @@ const sourceLabels: Record<string, string> = {
   external: 'Christian News',
 };
 
-const demoNews: NewsArticle[] = [
-  {
-    id: '1',
-    title: 'Healing School Graduation: Over 50,000 Students Celebrate Divine Healing',
-    summary: 'The Healing School Online Campus celebrated another successful graduation with testimonies of miraculous healings from around the world.',
-    content: null,
-    source: 'Healing School',
-    source_type: 'healing_school',
-    image_url: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '2',
-    title: 'Pastor Chris Announces Global Prayer Program for 2026',
-    summary: 'A new initiative to unite believers worldwide in prayer has been launched, with special focus on reaching the unreached.',
-    content: null,
-    source: 'Loveworld News',
-    source_type: 'loveworld',
-    image_url: 'https://images.unsplash.com/photo-1545987796-200677ee1011?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '3',
-    title: 'Herald Social Reaches 1 Million Active Heralds',
-    summary: 'The platform celebrates a major milestone as the community continues to grow with mission-aligned engagement.',
-    content: null,
-    source: 'Herald Social',
-    source_type: 'herald',
-    image_url: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '4',
-    title: 'New Study Shows Faith-Based Communities Growing Globally',
-    summary: 'Research indicates significant growth in faith communities across Asia and Africa, with digital platforms playing a key role.',
-    content: null,
-    source: 'Christian Daily',
-    source_type: 'external',
-    image_url: 'https://images.unsplash.com/photo-1438032005730-c779502df39b?w=600',
-    external_url: 'https://example.com',
-    published_at: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '5',
-    title: 'Rhapsody of Realities Translated into 100th Language',
-    summary: 'The popular daily devotional reaches another milestone, now available in 100 languages worldwide.',
-    content: null,
-    source: 'Loveworld News',
-    source_type: 'loveworld',
-    image_url: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '6',
-    title: 'Healing Testimonies: Cancer Healed Through Prayer',
-    summary: 'Multiple testimonies emerge from the latest Healing Streams session with documented medical verifications.',
-    content: null,
-    source: 'Healing School',
-    source_type: 'healing_school',
-    image_url: 'https://images.unsplash.com/photo-1516574187841-cb9cc2ca948b?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '7',
-    title: 'Herald Causes Surpasses $1M in Donations',
-    summary: 'The community has collectively donated over $1 million in HTTN to support various missionary and outreach projects.',
-    content: null,
-    source: 'Herald Social',
-    source_type: 'herald',
-    image_url: 'https://images.unsplash.com/photo-1469571486292-0ba58a3f068b?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: '8',
-    title: 'Youth Conference 2026: Dates Announced',
-    summary: 'The annual global youth conference will be held in multiple cities simultaneously with virtual participation options.',
-    content: null,
-    source: 'Loveworld News',
-    source_type: 'loveworld',
-    image_url: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=600',
-    external_url: null,
-    published_at: new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString(),
-  },
-];
+
 
 export default function News() {
   const { user } = useAuth();
@@ -157,20 +69,11 @@ export default function News() {
     setError(null);
     setLoading(true);
     try {
-      const { data, error: err } = await supabase
-        .from('news_articles')
-        .select('*')
-        .order('published_at', { ascending: false })
-        .limit(50);
-      if (err) throw err;
-      if (data && data.length > 0) {
-        setNews(data as NewsArticle[]);
-      } else {
-        setNews(demoNews);
-      }
+      const res = await getNews({ limit: 50, sort: '-created_at' });
+      setNews(res.data || []);
     } catch {
       setError('Failed to load news.');
-      setNews(demoNews);
+      setNews([]);
     } finally {
       setLoading(false);
     }

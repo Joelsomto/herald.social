@@ -12,7 +12,7 @@ export const getUserById = async (userId: string) => {
 };
 
 export const getUserByUsername = async (username: string) => {
-  return apiGet<ApiUser>(`/users/by-username/${username}`);
+  return apiGet<ApiUser>(`/users/by-username/${username}/`);
 };
 
 export const updateCurrentUser = async (payload: Partial<ApiUser>) => {
@@ -130,11 +130,13 @@ export const getTopUsers = async (params?: { limit?: number; sort?: string }) =>
   return apiGet<ApiUser[]>(`/users${query ? `?${query}` : ''}`);
 };
 
-export const searchUsers = async (params: { q: string; limit?: number }) => {
+export const searchUsers = async (params: { q: string; limit?: number }): Promise<ApiUser[]> => {
   const queryParams = new URLSearchParams();
   queryParams.append('q', params.q);
   if (params.limit) queryParams.append('limit', params.limit.toString());
-  return apiGet<{ data?: ApiUser[]; results?: ApiUser[] } | ApiUser[]>(
+  const res = await apiGet<{ data?: ApiUser[]; results?: ApiUser[] } | ApiUser[]>(
     `/users/search/?${queryParams.toString()}`
   );
+  if (Array.isArray(res)) return res;
+  return (res as any).results ?? (res as any).data ?? [];
 };

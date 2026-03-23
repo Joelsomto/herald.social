@@ -4,8 +4,7 @@ import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import { FollowButton } from '@/components/herald/FollowButton';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
-import { getUserByUsername } from '@/lib/api/users';
-import { getPosts } from '@/lib/api/posts';
+import { getUserByUsername, getUserPosts } from '@/lib/api/users';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -84,11 +83,14 @@ export default function UserProfile() {
 
       if (profileData) {
         setProfile(profileData as any);
-        const postsResponse = await getPosts({ limit: 20, sort: '-created_at' });
-        if (postsResponse?.data) {
-          // Filter posts by this user (API should do this but we'll filter client-side for now)
-          const userPosts = postsResponse.data.filter((p: any) => p.author_id === profileData.id || p.author?.username === username);
-          setPosts(userPosts as any);
+        try {
+          const postsResponse = await getUserPosts(profileData.id, { limit: 20 });
+          const rawPosts = Array.isArray(postsResponse)
+            ? postsResponse
+            : (postsResponse as any)?.data ?? (postsResponse as any)?.results ?? [];
+          setPosts(rawPosts as any);
+        } catch {
+          setPosts([]);
         }
       } else {
         setProfile(null);

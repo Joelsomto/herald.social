@@ -92,3 +92,34 @@ export const bookmarkPost = async (postId: string) => {
     body: {},
   });
 };
+
+export const getTrendingPosts = async (limit = 20): Promise<PostsResponse> => {
+  const raw = await apiGet<unknown>(`/posts/trending/?limit=${limit}`);
+  return normalisePosts(raw, limit);
+};
+
+export const getFollowingPosts = async (params?: { page?: number; limit?: number }): Promise<PostsResponse> => {
+  const q = new URLSearchParams();
+  if (params?.page) q.append('page', String(params.page));
+  if (params?.limit) q.append('limit', String(params.limit));
+  const raw = await apiGet<unknown>(`/posts/following/?${q.toString()}`);
+  return normalisePosts(raw, params?.limit ?? 20);
+};
+
+function normalisePosts(raw: unknown, limit: number): PostsResponse {
+  if (Array.isArray(raw)) {
+    return { data: raw as Post[], pagination: { page: 1, limit, total: (raw as Post[]).length, total_pages: 1 } };
+  }
+  const r = raw as any;
+  const list: Post[] = r.data ?? r.results ?? [];
+  const total = r.total ?? r.count ?? list.length;
+  return {
+    data: list,
+    pagination: {
+      page: r.pagination?.page ?? r.page ?? 1,
+      limit,
+      total,
+      total_pages: r.pagination?.total_pages ?? r.total_pages ?? Math.ceil(total / limit),
+    },
+  };
+}

@@ -8,7 +8,6 @@ import { SchedulePostDialog } from '@/components/herald/SchedulePostDialog';
 import { FloatingMessageButton } from '@/components/herald/FloatingMessageButton';
 import { TrendingSection } from '@/components/herald/TrendingSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
-import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { PullToRefresh } from '@/components/herald/PullToRefresh';
 import { SearchBar } from '@/components/herald/SearchBar';
 import { LiveSection } from '@/components/herald/LiveSection';
@@ -19,7 +18,7 @@ import { Sparkles, Image, Smile, Calendar, MapPin, BadgeCheck, Loader2, RefreshC
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { getPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, createPost } from '@/lib/api/posts';
+import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, createPost } from '@/lib/api/posts';
 import { getUserTasks, claimTaskReward } from '@/lib/api/tasks';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -102,6 +101,7 @@ export default function Feed() {
   const [error, setError] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const filterMountedRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -141,24 +141,47 @@ export default function Feed() {
     };
   }, [hasMore, isLoadingMore, posts]);
 
+  // Re-fetch when feed filter tab changes (skip on initial mount)
+  useEffect(() => {
+    if (!filterMountedRef.current) {
+      filterMountedRef.current = true;
+      return;
+    }
+    if (user) {
+      setPosts([]);
+      setHasMore(true);
+      fetchPosts(feedFilter);
+    }
+  }, [feedFilter]);
+
   const loadMorePosts = async () => {
     if (isLoadingMore || !hasMore || posts.length === 0) return;
-    
+
+    // Trending is a single fixed-size list — no pagination
+    if (feedFilter === 'trending') {
+      setHasMore(false);
+      return;
+    }
+
     setIsLoadingMore(true);
-    
+
     try {
       // Calculate next page based on current posts
       const currentPage = Math.floor(posts.length / 20) + 1;
-      const response = await getPosts({ page: currentPage + 1, limit: 10, sort: '-created_at' });
-      
-      // Handle both response formats
       let newPosts: any[] = [];
-      if (Array.isArray(response)) {
-        newPosts = response;
-      } else if (response && 'data' in response && Array.isArray(response.data)) {
+
+      if (feedFilter === 'following') {
+        const response = await getFollowingPosts({ page: currentPage + 1, limit: 10 });
         newPosts = response.data;
+      } else {
+        const response = await getPosts({ page: currentPage + 1, limit: 10, sort: '-created_at' });
+        if (Array.isArray(response)) {
+          newPosts = response;
+        } else if (response && 'data' in response && Array.isArray(response.data)) {
+          newPosts = response.data;
+        }
       }
-      
+
       if (newPosts.length < 10) setHasMore(false);
       
       // Map posts using flattened author fields (same as fetchPosts)
@@ -228,24 +251,33 @@ export default function Feed() {
     }
   };
 
-  const fetchPosts = async () => {
+  const fetchPosts = async (filter: FeedFilter = feedFilter) => {
     try {
-      console.log('fetchPosts: starting');
+      console.log('fetchPosts: starting with filter:', filter);
       const startTime = performance.now();
-      
-      const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+
+      let postsArray: any[] = [];
+
+      if (filter === 'trending') {
+        const response = await getTrendingPosts(20);
+        postsArray = response.data;
+        setHasMore(false); // trending has no pagination
+      } else if (filter === 'following') {
+        const response = await getFollowingPosts({ page: 1, limit: 20 });
+        postsArray = response.data;
+        setHasMore(postsArray.length >= 20);
+      } else {
+        const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+        if (Array.isArray(response)) {
+          postsArray = response;
+        } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
+          postsArray = response.data;
+        }
+        setHasMore(postsArray.length >= 20);
+      }
 
       const duration = performance.now() - startTime;
       console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
-      console.log('fetchPosts raw response:', JSON.stringify(response, null, 2));
-      
-      // Handle both response formats: direct array or wrapped in {data: [...]}
-      let postsArray: any[] = [];
-      if (Array.isArray(response)) {
-        postsArray = response;
-      } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
-        postsArray = response.data;
-      }
       
       console.log(`fetchPosts: loaded ${postsArray.length} posts`);
       
@@ -808,12 +840,6 @@ export default function Feed() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
-            )}
-            {/* Insert more ads periodically */}
-            {index === 2 && (
-              <div className="px-4 py-3 border-b border-border">
-                <VerticalAdBanner {...verticalAds[1]} />
               </div>
             )}
           </div>

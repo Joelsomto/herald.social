@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
-type EventType = 
+type EventType =
   | 'page_view'
   | 'post_view'
   | 'post_like'
@@ -25,6 +24,11 @@ interface EventData {
   [key: string]: string | number | boolean | null | undefined;
 }
 
+/**
+ * Lightweight client-side analytics hook.
+ * Events are logged to the browser console in development.
+ * Swap the `trackEvent` body for a real analytics provider when ready.
+ */
 export function useAnalytics() {
   const { user } = useAuth();
 
@@ -37,75 +41,84 @@ export function useAnalytics() {
     return sessionId;
   }, []);
 
-  const trackEvent = useCallback(async (
-    eventType: EventType,
-    eventData: EventData = {}
-  ) => {
-    if (!user) return;
-
-    try {
-      await supabase.from('user_analytics').insert({
-        user_id: user.id,
-        event_type: eventType,
-        event_data: {
-          ...eventData,
+  const trackEvent = useCallback(
+    (eventType: EventType, eventData: EventData = {}) => {
+      if (!user) return;
+      if (import.meta.env.DEV) {
+        console.debug('[Analytics]', eventType, {
+          user_id: user.id,
+          session_id: getSessionId(),
           url: window.location.pathname,
-          referrer: document.referrer,
-          user_agent: navigator.userAgent,
+          ...eventData,
           timestamp: new Date().toISOString(),
-        },
-        session_id: getSessionId(),
+        });
+      }
+    },
+    [user, getSessionId]
+  );
+
+  const trackPageView = useCallback(
+    (pageName: string, additionalData?: EventData) => {
+      trackEvent('page_view', { page: pageName, ...additionalData });
+    },
+    [trackEvent]
+  );
+
+  const trackPostEngagement = useCallback(
+    (
+      action: 'view' | 'like' | 'share' | 'comment' | 'create',
+      postId: string,
+      additionalData?: EventData
+    ) => {
+      const eventMap: Record<string, EventType> = {
+        view: 'post_view',
+        like: 'post_like',
+        share: 'post_share',
+        comment: 'post_comment',
+        create: 'post_create',
+      };
+      trackEvent(eventMap[action], { post_id: postId, ...additionalData });
+    },
+    [trackEvent]
+  );
+
+  const trackProfileView = useCallback(
+    (profileUserId: string) => {
+      trackEvent('profile_view', { profile_user_id: profileUserId });
+    },
+    [trackEvent]
+  );
+
+  const trackFollow = useCallback(
+    (targetUserId: string, isFollow: boolean) => {
+      trackEvent(isFollow ? 'follow' : 'unfollow', { target_user_id: targetUserId });
+    },
+    [trackEvent]
+  );
+
+  const trackTaskComplete = useCallback(
+    (taskId: string, reward: number) => {
+      trackEvent('task_complete', { task_id: taskId, reward });
+    },
+    [trackEvent]
+  );
+
+  const trackAdInteraction = useCallback(
+    (action: 'impression' | 'click', campaignId: string, additionalData?: EventData) => {
+      trackEvent(action === 'impression' ? 'ad_impression' : 'ad_click', {
+        campaign_id: campaignId,
+        ...additionalData,
       });
-    } catch (error) {
-      console.error('Analytics tracking error:', error);
-    }
-  }, [user, getSessionId]);
+    },
+    [trackEvent]
+  );
 
-  const trackPageView = useCallback((pageName: string, additionalData?: EventData) => {
-    trackEvent('page_view', { page: pageName, ...additionalData });
-  }, [trackEvent]);
-
-  const trackPostEngagement = useCallback((
-    action: 'view' | 'like' | 'share' | 'comment' | 'create',
-    postId: string,
-    additionalData?: EventData
-  ) => {
-    const eventMap: Record<string, EventType> = {
-      view: 'post_view',
-      like: 'post_like',
-      share: 'post_share',
-      comment: 'post_comment',
-      create: 'post_create',
-    };
-    trackEvent(eventMap[action], { post_id: postId, ...additionalData });
-  }, [trackEvent]);
-
-  const trackProfileView = useCallback((profileUserId: string) => {
-    trackEvent('profile_view', { profile_user_id: profileUserId });
-  }, [trackEvent]);
-
-  const trackFollow = useCallback((targetUserId: string, isFollow: boolean) => {
-    trackEvent(isFollow ? 'follow' : 'unfollow', { target_user_id: targetUserId });
-  }, [trackEvent]);
-
-  const trackTaskComplete = useCallback((taskId: string, reward: number) => {
-    trackEvent('task_complete', { task_id: taskId, reward });
-  }, [trackEvent]);
-
-  const trackAdInteraction = useCallback((
-    action: 'impression' | 'click',
-    campaignId: string,
-    additionalData?: EventData
-  ) => {
-    trackEvent(action === 'impression' ? 'ad_impression' : 'ad_click', {
-      campaign_id: campaignId,
-      ...additionalData,
-    });
-  }, [trackEvent]);
-
-  const trackSearch = useCallback((query: string, resultsCount: number) => {
-    trackEvent('search', { query, results_count: resultsCount });
-  }, [trackEvent]);
+  const trackSearch = useCallback(
+    (query: string, resultsCount: number) => {
+      trackEvent('search', { query, results_count: resultsCount });
+    },
+    [trackEvent]
+  );
 
   return {
     trackEvent,

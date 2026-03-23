@@ -12,7 +12,7 @@ import {
   Video, Radio, Users, Play, Eye, BadgeCheck, Plus, Calendar,
   TrendingUp, Clock, Sparkles, Loader2, AlertCircle, RefreshCw
 } from 'lucide-react';
-// Supabase removed
+import { getStreams } from '@/lib/api/streams';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LiveStream {
@@ -112,24 +112,23 @@ export default function Live() {
     setError(null);
     setLoading(true);
     try {
-      const { data, error: err } = await supabase
-        .from('live_streams')
-        .select('*')
-        .order('viewer_count', { ascending: false });
-      if (err) throw err;
-
-      if (data && data.length > 0) {
-        const userIds = [...new Set(data.map(s => s.user_id))];
-        const { data: profiles } = await supabase
-          .from('users')
-          .select('user_id, display_name, username, avatar_url, is_verified')
-          .in('user_id', userIds);
-        const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
-        setStreams(data.map(s => ({
-          ...s,
-          viewer_count: s.viewer_count ?? 0,
-          profile: profileMap.get(s.user_id) as LiveStream['profile'],
-        })));
+      const result = await getStreams({ limit: 50 });
+      const data = Array.isArray(result) ? result : (result as any)?.data ?? [];
+      if (data.length > 0) {
+        setStreams(
+          data.map((s: any) => ({
+            ...s,
+            viewer_count: s.viewer_count ?? 0,
+            profile: s.host
+              ? {
+                  display_name: s.host.display_name,
+                  username: s.host.username,
+                  avatar_url: s.host.avatar_url,
+                  is_verified: s.host.is_verified ?? false,
+                }
+              : undefined,
+          }))
+        );
       }
       // else keep DEMO_STREAMS (initial state)
     } catch {

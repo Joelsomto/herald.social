@@ -35,14 +35,18 @@ export function CheckoutDialog({ isOpen, onClose, items, onSuccess }: CheckoutDi
   // Fetch wallet on open
   useState(() => {
     if (isOpen && user) {
-      supabase
-        .from('wallets')
-        .select('httn_points, espees')
-        .eq('user_id', user.id)
-        .single()
-        .then(({ data }) => {
-          if (data) setWalletBalance({ httn_points: data.httn_points, espees: Number(data.espees) });
-        });
+      import('@/lib/api/wallets').then(({ getCurrentUserWallet }) =>
+        getCurrentUserWallet()
+          .then((wallet) => {
+            if (wallet) {
+              setWalletBalance({
+                httn_points: wallet.httn_points,
+                espees: Number(wallet.espees),
+              });
+            }
+          })
+          .catch(() => null)
+      );
     }
   });
 
@@ -54,43 +58,12 @@ export function CheckoutDialog({ isOpen, onClose, items, onSuccess }: CheckoutDi
     setStep('processing');
 
     try {
-      // Deduct from wallet
-      const { data: wallet } = await supabase
-        .from('wallets')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (wallet) {
-        await supabase
-          .from('wallets')
-          .update({
-            httn_points: wallet.httn_points - httnTotal,
-            espees: Number(wallet.espees) - espeesTotal,
-          })
-          .eq('user_id', user.id);
-      }
-
-      // Create order
-      await supabase.from('orders').insert({
-        user_id: user.id,
-        items: items.map(i => ({ id: i.id, name: i.name, price: i.price, priceType: i.priceType })),
-        total_amount: httnTotal + espeesTotal,
+      const { storeCheckout } = await import('@/lib/api/store');
+      // Build checkout payload — use product IDs from cart items
+      await storeCheckout({
+        items: items.map((i) => ({ product_id: i.id, quantity: 1 })),
         payment_type: httnTotal > 0 ? 'httn' : 'espees',
-        status: 'completed',
-        completed_at: new Date().toISOString(),
       });
-
-      // Create transaction log
-      if (httnTotal > 0) {
-        await supabase.from('wallet_transactions').insert({
-          user_id: user.id,
-          type: 'purchase',
-          amount: -httnTotal,
-          token_type: 'points',
-          description: `E-Store purchase: ${items.length} item(s)`,
-        });
-      }
 
       setStep('success');
       

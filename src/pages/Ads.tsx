@@ -1,5 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
+import {
+  getMyAdCampaigns,
+  createAdCampaign,
+  updateAdCampaign,
+  deleteAdCampaign,
+  type AdCampaign,
+} from '@/lib/api/adcampaigns';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,28 +41,11 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 
-interface AdCampaign {
-  title: string;
-  description: string | null;
-  budget_points: number;
-  spent_points: number;
-  impressions: number;
-  clicks: number;
-  status: string;
-  start_date: string | null;
-  end_date: string | null;
-  created_at: string;
-}
-
-interface WalletData {
-  httn_points: number;
-}
-
 export default function Ads() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [campaigns, setCampaigns] = useState<AdCampaign[]>([]);
-  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [wallet, setWallet] = useState<{ httn_points: number } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newCampaign, setNewCampaign] = useState({
     title: '',
@@ -68,25 +59,22 @@ export default function Ads() {
     }
   }, [user]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     if (!user) return;
-
-    const [campaignsRes, walletRes] = await Promise.all([
-      supabase
-        .from('ad_campaigns')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('wallets')
-        .select('httn_points')
-        .eq('user_id', user.id)
-        .maybeSingle(),
-    ]);
-
-    if (campaignsRes.data) setCampaigns(campaignsRes.data);
-    if (walletRes.data) setWallet(walletRes.data);
-  };
+    try {
+      const [campaignsResult, walletResult] = await Promise.all([
+        getMyAdCampaigns(),
+        getCurrentUserWallet(),
+      ]);
+      const campaignList: AdCampaign[] = Array.isArray(campaignsResult)
+        ? campaignsResult
+        : (campaignsResult as any)?.data ?? [];
+      setCampaigns(campaignList);
+      if (walletResult) setWallet({ httn_points: walletResult.httn_points });
+    } catch {
+      // silently ignore fetch errors
+    }
+  }, [user]);
 
   const handleCreateCampaign = async () => {
     if (!user || !wallet) return;
@@ -94,68 +82,49 @@ export default function Ads() {
     if (newCampaign.budget_points > wallet.httn_points) {
       toast({
         title: 'Insufficient Points',
-        description: 'You don\'t have enough HTTN points for this campaign',
+        description: "You don't have enough HTTN points for this campaign",
         variant: 'destructive',
       });
       return;
     }
 
-    const { error } = await supabase.from('ad_campaigns').insert({
-      user_id: user.id,
-      title: newCampaign.title,
-      description: newCampaign.description,
-      budget_points: newCampaign.budget_points,
-      status: 'draft',
-    });
-
-    if (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to create campaign',
-        variant: 'destructive',
+    try {
+      await createAdCampaign({
+        title: newCampaign.title,
+        description: newCampaign.description,
+        budget_points: newCampaign.budget_points,
       });
-    } else {
-      toast({
-        title: 'Campaign Created',
-        description: 'Your ad campaign has been created',
-      });
+      toast({ title: 'Campaign Created', description: 'Your ad campaign has been created' });
       setDialogOpen(false);
       setNewCampaign({ title: '', description: '', budget_points: 100 });
       fetchData();
+    } catch {
+      toast({ title: 'Error', description: 'Failed to create campaign', variant: 'destructive' });
     }
   };
 
   const handleToggleStatus = async (campaignId: string, currentStatus: string) => {
     const newStatus = currentStatus === 'active' ? 'paused' : 'active';
-    
-    const { error } = await supabase
-      .from('ad_campaigns')
-      .update({ status: newStatus })
-      .eq('id', campaignId);
-
-    if (!error) {
+    try {
+      await updateAdCampaign(campaignId, { status: newStatus as AdCampaign['status'] });
       fetchData();
       toast({
         title: `Campaign ${newStatus === 'active' ? 'Activated' : 'Paused'}`,
         description: `Your campaign is now ${newStatus}`,
       });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to update campaign', variant: 'destructive' });
     }
   };
 
   const handleDeleteCampaign = async (campaignId: string) => {
     if (!confirm('Are you sure you want to delete this campaign?')) return;
-
-    const { error } = await supabase
-      .from('ad_campaigns')
-      .delete()
-      .eq('id', campaignId);
-
-    if (!error) {
+    try {
+      await deleteAdCampaign(campaignId);
       fetchData();
-      toast({
-        title: 'Campaign Deleted',
-        description: 'Your campaign has been deleted',
-      });
+      toast({ title: 'Campaign Deleted', description: 'Your campaign has been deleted' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete campaign', variant: 'destructive' });
     }
   };
 

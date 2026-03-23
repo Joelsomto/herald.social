@@ -45,22 +45,39 @@ export function MediaUpload({
 
     setUploading(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${userId}/${Date.now()}.${fileExt}`;
+      const formData = new FormData();
+      formData.append('file', file);
 
-      const { error: uploadError, data } = await supabase.storage
-        .from('post-media')
-        .upload(fileName, file, { upsert: true });
+      const token =
+        localStorage.getItem('access_token') ||
+        sessionStorage.getItem('access_token');
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token.replace(/^Bearer\s+/i, '').trim()}`;
+      }
 
-      if (uploadError) throw uploadError;
+      const baseUrl =
+        import.meta.env.VITE_API_BASE_URL ||
+        'https://herald-backend-6i3m.onrender.com/api/v1';
 
-      const { data: urlData } = supabase.storage
-        .from('post-media')
-        .getPublicUrl(fileName);
+      const response = await fetch(`${baseUrl}/media/upload/`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
 
-      setPreview(urlData.publicUrl);
-      onMediaUploaded(urlData.publicUrl, mediaType);
-      
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+      }
+
+      const result: { url: string; name: string } = await response.json();
+      const publicUrl = result.url.startsWith('http')
+        ? result.url
+        : `${baseUrl.replace('/api/v1', '')}${result.url}`;
+
+      setPreview(publicUrl);
+      onMediaUploaded(publicUrl, mediaType);
+
       toast({
         title: 'Media uploaded',
         description: 'Your media has been uploaded successfully',
@@ -68,7 +85,7 @@ export function MediaUpload({
     } catch (error: any) {
       toast({
         title: 'Upload failed',
-        description: error.message,
+        description: error.message ?? 'An error occurred during upload',
         variant: 'destructive',
       });
     } finally {

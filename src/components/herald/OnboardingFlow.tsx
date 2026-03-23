@@ -69,14 +69,27 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     if (!user || step !== 3) return;
     const fetchSuggested = async () => {
       setSuggestedUsersLoading(true);
-      const { data } = await supabase
-        .from('users')
-        .select('user_id, display_name, username, avatar_url, is_verified, bio')
-        .neq('user_id', user.id)
-        .order('reputation', { ascending: false, nullsFirst: false })
-        .limit(8);
-      if (data?.length) setSuggestedUsers(data as SuggestedUser[]);
-      setSuggestedUsersLoading(false);
+      try {
+        const { apiGet } = await import('@/lib/apiClient');
+        const result = await apiGet<any>('/users/suggestions/?limit=8');
+        const data: any[] = Array.isArray(result) ? result : result?.data ?? result?.suggestions ?? [];
+        if (data.length) {
+          setSuggestedUsers(
+            data.map((u: any) => ({
+              user_id: u.id ?? u.user_id,
+              display_name: u.display_name,
+              username: u.username,
+              avatar_url: u.avatar_url,
+              is_verified: u.is_verified ?? false,
+              bio: u.bio ?? null,
+            }))
+          );
+        }
+      } catch {
+        // Silently ignore — user can follow people later
+      } finally {
+        setSuggestedUsersLoading(false);
+      }
     };
     fetchSuggested();
   }, [user, step]);
@@ -97,42 +110,31 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const handleComplete = async () => {
     if (!user) return;
-
     setIsLoading(true);
-
     try {
-      // 1. Save account type to profile
-      await supabase.from('users').update({
-        account_type: selectedAccountType,
-      }).eq('user_id', user.id);
+      const { apiPost, apiPatch } = await import('@/lib/apiClient');
 
-      // 2. Save interests and mark onboarding as completed (so returning users don't see onboarding again)
-      const { error: interestsError } = await supabase.from('user_interests').upsert({
-        user_id: user.id,
-        interests: selectedInterests,
-        onboarding_completed: true,
-      }, {
-        onConflict: 'user_id',
-      });
-      if (interestsError) throw interestsError;
+      // 1. Save interests via API
+      await apiPost('/users/me/interests/', {
+        body: { interests: selectedInterests },
+      }).catch(() => null);
 
-      // 3. Persist "people to follow" into followers table (followedUsers are user_ids from DB)
+      // 2. Bulk follow selected users
       if (followedUsers.length > 0) {
-        await supabase.from('followers').insert(
-          followedUsers.map((following_id) => ({
-            follower_id: user.id,
-            following_id,
-          }))
-        );
+        await apiPost('/users/me/follows/bulk/', {
+          body: { user_ids: followedUsers },
+        }).catch(() => null);
       }
+
+      // 3. Update account type on profile
+      await apiPatch('/users/me/', {
+        body: { account_type: selectedAccountType || 'normal' },
+      }).catch(() => null);
+
+      // 4. Mark onboarding complete
+      await apiPost('/users/me/onboarding/complete/', {}).catch(() => null);
     } catch (e) {
       console.error('Onboarding save error:', e);
-      // Still mark onboarding complete so user is not stuck
-      await supabase.from('user_interests').upsert({
-        user_id: user.id,
-        interests: selectedInterests,
-        onboarding_completed: true,
-      }, { onConflict: 'user_id' });
     } finally {
       setIsLoading(false);
       onComplete();
@@ -141,37 +143,12 @@ export function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
 
   const handleSkip = async () => {
     if (!user) return;
-
     setIsLoading(true);
-
     try {
-      // Mark onboarding as completed so returning users never see it again
-      const { error: interestsError } = await supabase
-        .from('user_interests')
-        .upsert({
-          user_id: user.id,
-          interests: selectedInterests.length > 0 ? selectedInterests : [],
-          onboarding_completed: true,
-        }, {
-          onConflict: 'user_id',
-        });
-
-      if (interestsError) throw interestsError;
-
-      // Save account type (defaults to 'normal' if not changed)
-      await supabase.from('users').update({
-        account_type: selectedAccountType || 'normal',
-      }).eq('user_id', user.id);
-
+      const { apiPost } = await import('@/lib/apiClient');
+      await apiPost('/users/me/onboarding/complete/', {}).catch(() => null);
       onComplete();
-    } catch (e) {
-      console.error('Error saving skipped onboarding:', e);
-      // Still complete so user is not stuck
-      await supabase.from('user_interests').upsert({
-        user_id: user.id,
-        interests: [],
-        onboarding_completed: true,
-      }, { onConflict: 'user_id' });
+    } catch {
       onComplete();
     } finally {
       setIsLoading(false);

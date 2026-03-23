@@ -1,4 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  getStreamChat,
+  sendStreamChat,
+  sendStreamDonation,
+  joinStream,
+  leaveStream,
+  getStream,
+  type StreamChatMessage,
+  type StreamDonation,
+} from '@/lib/api/streams';
+import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +76,7 @@ export function LiveStreamViewer({
   const { toast } = useToast();
   const chatScrollRef = useRef<HTMLDivElement>(null);
   
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [donations, setDonations] = useState<Donation[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -77,126 +89,62 @@ export function LiveStreamViewer({
   const [wallet, setWallet] = useState<{ httn_points: number } | null>(null);
   const [recentDonation, setRecentDonation] = useState<Donation | null>(null);
 
+  const refreshChat = useCallback(async () => {
+    if (!streamId) return;
+    try {
+      const result = await getStreamChat(streamId, { limit: 100 });
+      const items: StreamChatMessage[] = (result as any)?.data ?? [];
+      setMessages(
+        items.map((m) => ({
+          id: m.id,
+          user_id: m.user.id,
+          content: m.message,
+          created_at: m.created_at,
+          profile: {
+            display_name: m.user.display_name,
+            username: m.user.username,
+            avatar_url: m.user.avatar_url,
+            is_verified: false,
+          },
+        }))
+      );
+    } catch { /* ignore */ }
+  }, [streamId]);
+
   useEffect(() => {
     if (!open || !streamId) return;
 
-    // Fetch initial data
+    // Initial data fetch
     const fetchData = async () => {
-      // Fetch chat messages
-      const { data: chatData } = await supabase
-        .from('live_chat_messages')
-        .select('*')
-        .eq('stream_id', streamId)
-        .order('created_at', { ascending: true })
-        .limit(100);
+      await refreshChat();
 
-      if (chatData) {
-        // Fetch profiles for messages
-        const userIds = [...new Set(chatData.map(m => m.user_id))];
-        const { data: profiles } = await supabase
-          .from('users')
-          .select('user_id, display_name, username, avatar_url, is_verified')
-          .in('user_id', userIds);
+      try {
+        const streamData = await getStream(streamId);
+        setViewerCount(streamData?.viewer_count ?? 0);
+      } catch { /* ignore */ }
 
-        const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
-        setMessages(chatData.map(m => ({
-          ...m,
-          profile: profileMap.get(m.user_id)
-        })));
-      }
-
-      // Fetch stream viewer count
-      const { data: streamData } = await supabase
-        .from('live_streams')
-        .select('viewer_count')
-        .eq('id', streamId)
-        .single();
-
-      if (streamData) {
-        setViewerCount(streamData.viewer_count || 0);
-      }
-
-      // Fetch user wallet
       if (user) {
-        const { data: walletData } = await supabase
-          .from('wallets')
-          .select('httn_points')
-          .eq('user_id', user.id)
-          .single();
-        
-        if (walletData) setWallet(walletData);
+        try {
+          const walletData = await getCurrentUserWallet();
+          if (walletData) setWallet({ httn_points: walletData.httn_points });
+        } catch { /* ignore */ }
       }
     };
 
     fetchData();
 
-    // Increment viewer count
-    supabase.from('live_streams').update({
-      viewer_count: viewerCount + 1
-    }).eq('id', streamId);
+    // Notify backend that user joined
+    if (user) joinStream(streamId).catch(() => null);
 
-    // Subscribe to realtime updates
-    const chatChannel = supabase
-      .channel(`stream-chat-${streamId}`)
-      .on('postgres_changes', 
-        { event: 'INSERT', schema: 'public', table: 'live_chat_messages', filter: `stream_id=eq.${streamId}` },
-        async (payload) => {
-          const newMsg = payload.new as ChatMessage;
-          // Fetch profile
-          const { data: profile } = await supabase
-            .from('users')
-            .select('user_id, display_name, username, avatar_url, is_verified')
-            .eq('user_id', newMsg.user_id)
-            .single();
-          
-          setMessages(prev => [...prev, { ...newMsg, profile: profile || undefined }]);
-        }
-      )
-      .subscribe();
-
-    const donationChannel = supabase
-      .channel(`stream-donations-${streamId}`)
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'stream_donations', filter: `stream_id=eq.${streamId}` },
-        async (payload) => {
-          const newDonation = payload.new as Donation;
-          const { data: profile } = await supabase
-            .from('users')
-            .select('user_id, display_name, avatar_url')
-            .eq('user_id', newDonation.donor_id)
-            .single();
-          
-          const donationWithProfile = { ...newDonation, profile: profile || undefined };
-          setDonations(prev => [...prev, donationWithProfile]);
-          setRecentDonation(donationWithProfile);
-          
-          // Clear recent donation after 5 seconds
-          setTimeout(() => setRecentDonation(null), 5000);
-        }
-      )
-      .subscribe();
-
-    const viewerChannel = supabase
-      .channel(`stream-viewers-${streamId}`)
-      .on('postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'live_streams', filter: `id=eq.${streamId}` },
-        (payload) => {
-          setViewerCount(payload.new.viewer_count || 0);
-        }
-      )
-      .subscribe();
+    // Poll chat every 5 seconds
+    pollRef.current = setInterval(refreshChat, 5_000);
 
     return () => {
-      supabase.removeChannel(chatChannel);
-      supabase.removeChannel(donationChannel);
-      supabase.removeChannel(viewerChannel);
-      
-      // Decrement viewer count on leave
-      supabase.from('live_streams').update({
-        viewer_count: Math.max(0, viewerCount - 1)
-      }).eq('id', streamId);
+      if (pollRef.current) clearInterval(pollRef.current);
+      // Notify backend on leave
+      if (user) leaveStream(streamId).catch(() => null);
     };
-  }, [open, streamId, user]);
+  }, [open, streamId, user, refreshChat]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -207,61 +155,77 @@ export function LiveStreamViewer({
 
   const sendMessage = async () => {
     if (!user || !newMessage.trim()) return;
-
-    await supabase.from('live_chat_messages').insert({
-      stream_id: streamId,
-      user_id: user.id,
-      content: newMessage.trim(),
-    });
-
+    const content = newMessage.trim();
     setNewMessage('');
+    try {
+      const msg = await sendStreamChat(streamId, content);
+      // Optimistic update
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: msg.id,
+          user_id: msg.user.id,
+          content: msg.message,
+          created_at: msg.created_at,
+          profile: {
+            display_name: msg.user.display_name,
+            username: msg.user.username,
+            avatar_url: msg.user.avatar_url,
+            is_verified: false,
+          },
+        },
+      ]);
+    } catch {
+      setNewMessage(content); // restore on error
+    }
   };
 
   const sendDonation = async () => {
     if (!user || !wallet || wallet.httn_points < donationAmount) {
       toast({
         title: 'Insufficient Points',
-        description: 'You don\'t have enough HTTN Points for this donation.',
+        description: "You don't have enough HTTN Points for this donation.",
         variant: 'destructive',
       });
       return;
     }
 
-    // Deduct points
-    await supabase.from('wallets').update({
-      httn_points: wallet.httn_points - donationAmount
-    }).eq('user_id', user.id);
+    try {
+      const donation = await sendStreamDonation(streamId, {
+        amount: donationAmount,
+        currency: 'points',
+        message: donationMessage || undefined,
+      });
 
-    // Create donation record
-    await supabase.from('stream_donations').insert({
-      stream_id: streamId,
-      donor_id: user.id,
-      amount: donationAmount,
-      message: donationMessage || null,
-    });
+      const donationWithProfile: Donation = {
+        id: donation.id,
+        donor_id: user.id,
+        amount: Number(donation.amount),
+        message: donation.message ?? null,
+        created_at: donation.created_at,
+        profile: { display_name: user.display_name || 'You', avatar_url: null },
+      };
 
-    // Add points to host wallet
-    const { data: hostWallet } = await supabase
-      .from('wallets')
-      .select('httn_points')
-      .eq('user_id', host.id)
-      .single();
+      setDonations((prev) => [...prev, donationWithProfile]);
+      setRecentDonation(donationWithProfile);
+      setTimeout(() => setRecentDonation(null), 5000);
 
-    if (hostWallet) {
-      await supabase.from('wallets').update({
-        httn_points: hostWallet.httn_points + donationAmount
-      }).eq('user_id', host.id);
+      setWallet({ httn_points: wallet.httn_points - donationAmount });
+      setShowDonation(false);
+      setDonationAmount(100);
+      setDonationMessage('');
+
+      toast({
+        title: 'Donation Sent!',
+        description: `You sent ${donationAmount} HTTN Points to ${host.name}`,
+      });
+    } catch {
+      toast({
+        title: 'Donation Failed',
+        description: 'Unable to process your donation. Please try again.',
+        variant: 'destructive',
+      });
     }
-
-    setWallet({ httn_points: wallet.httn_points - donationAmount });
-    setShowDonation(false);
-    setDonationAmount(100);
-    setDonationMessage('');
-
-    toast({
-      title: 'Donation Sent!',
-      description: `You sent ${donationAmount} HTTN Points to ${host.name}`,
-    });
   };
 
   return (

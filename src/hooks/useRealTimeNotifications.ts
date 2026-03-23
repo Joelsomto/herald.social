@@ -1,23 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
-// Supabase removed
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from './useAuth';
 import { useToast } from './use-toast';
+import {
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification as apiDeleteNotification,
+  clearAllNotifications as apiClearAllNotifications,
+} from '@/lib/api/notifications';
+import type { Notification } from '@/lib/api/notifications';
 
-export interface Notification {
-  id: string;
-  user_id: string;
-  type: string;
-  title: string;
-  message: string;
-  actor_id: string | null;
-  actor_name: string | null;
-  actor_avatar: string | null;
-  actor_verified: boolean;
-  reference_id: string | null;
-  reference_type: string | null;
-  read: boolean;
-  created_at: string;
-}
+export type { Notification };
+
+const POLL_INTERVAL_MS = 30_000; // poll every 30 seconds
 
 export function useRealTimeNotifications() {
   const { user } = useAuth();
@@ -25,27 +20,71 @@ export function useRealTimeNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const prevUnreadRef = useRef(0);
 
-  // TODO: Integrate real-time notifications with new backend
   const fetchNotifications = useCallback(async () => {
-    setLoading(false);
-    setNotifications([]);
-    setUnreadCount(0);
-  }, []);
+    if (!user) {
+      setNotifications([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+    try {
+      const response = await getNotifications({ limit: 50 });
+      const items: Notification[] = Array.isArray(response)
+        ? response
+        : (response as any)?.data ?? [];
 
+      setNotifications(items);
+
+      const newUnread = items.filter((n) => !n.read).length;
+      setUnreadCount(newUnread);
+
+      // Show a toast if new unread notifications arrived during polling
+      if (prevUnreadRef.current > 0 && newUnread > prevUnreadRef.current) {
+        const newest = items.find((n) => !n.read);
+        if (newest) {
+          toast({
+            title: newest.title,
+            description: newest.message,
+            duration: 4000,
+          });
+        }
+      }
+      prevUnreadRef.current = newUnread;
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, toast]);
+
+  // Initial fetch + polling
   useEffect(() => {
-    // TODO: Subscribe to real-time notifications with new backend
+    if (!user) {
+      setNotifications([]);
+      setUnreadCount(0);
+      setLoading(false);
+      return;
+    }
+
     fetchNotifications();
-  }, [user, fetchNotifications, toast]);
+
+    pollRef.current = setInterval(fetchNotifications, POLL_INTERVAL_MS);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [user, fetchNotifications]);
 
   const markAsRead = async (notificationId: string) => {
     if (!user) return;
-
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', notificationId);
+      await markNotificationRead(notificationId);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
+      );
+      setUnreadCount((c) => Math.max(0, c - 1));
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -53,16 +92,11 @@ export function useRealTimeNotifications() {
 
   const markAllAsRead = async () => {
     if (!user) return;
-
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
-      
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      await markAllNotificationsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
+      prevUnreadRef.current = 0;
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -70,12 +104,15 @@ export function useRealTimeNotifications() {
 
   const deleteNotification = async (notificationId: string) => {
     if (!user) return;
-
     try {
-      await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', notificationId);
+      await apiDeleteNotification(notificationId);
+      setNotifications((prev) => {
+        const updated = prev.filter((n) => n.id !== notificationId);
+        const newUnread = updated.filter((n) => !n.read).length;
+        setUnreadCount(newUnread);
+        prevUnreadRef.current = newUnread;
+        return updated;
+      });
     } catch (error) {
       console.error('Error deleting notification:', error);
     }
@@ -83,51 +120,15 @@ export function useRealTimeNotifications() {
 
   const clearAll = async () => {
     if (!user) return;
-
     try {
-      await supabase
-        .from('notifications')
-        .delete()
-        .eq('user_id', user.id);
-      
+      await apiClearAllNotifications();
       setNotifications([]);
       setUnreadCount(0);
+      prevUnreadRef.current = 0;
     } catch (error) {
       console.error('Error clearing notifications:', error);
     }
   };
-
-  // Create notification helper for other parts of the app
-  const createNotification = useCallback(async (
-    targetUserId: string,
-    type: string,
-    title: string,
-    message: string,
-    referenceId?: string,
-    referenceType?: string
-  ) => {
-    if (!user) return;
-
-    // Get current user's profile for actor info
-    const { data: profile } = await supabase
-      .from('users')
-      .select('display_name, avatar_url, is_verified')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    await supabase.from('notifications').insert({
-      user_id: targetUserId,
-      type,
-      title,
-      message,
-      actor_id: user.id,
-      actor_name: profile?.display_name || 'Someone',
-      actor_avatar: profile?.avatar_url,
-      actor_verified: profile?.is_verified || false,
-      reference_id: referenceId,
-      reference_type: referenceType,
-    });
-  }, [user]);
 
   return {
     notifications,
@@ -137,7 +138,6 @@ export function useRealTimeNotifications() {
     markAllAsRead,
     deleteNotification,
     clearAll,
-    createNotification,
     refetch: fetchNotifications,
   };
 }

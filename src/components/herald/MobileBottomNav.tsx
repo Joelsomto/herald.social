@@ -1,7 +1,9 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Radio, Users, Bell, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { getNotifications } from '@/lib/api/notifications';
+import { getUnreadMessageCount } from '@/lib/api/messages';
 
 const navItems = [
   { icon: Home, label: 'Home', path: '/feed' },
@@ -17,39 +19,32 @@ export function MobileBottomNav() {
   const { user } = useAuth();
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (!user) return;
 
     const fetchUnreadCounts = async () => {
-      const [notifRes, msgRes] = await Promise.all([
-        supabase
-          .from('notifications')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .eq('read', false),
-        supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('receiver_id', user.id)
-          .eq('read', false),
-      ]);
-
-      setUnreadNotifications(notifRes.count || 0);
-      setUnreadMessages(msgRes.count || 0);
+      try {
+        const [notifRes, msgRes] = await Promise.all([
+          getNotifications({ read: false, limit: 1 }),
+          getUnreadMessageCount(),
+        ]);
+        const notifCount =
+          typeof (notifRes as any)?.pagination?.total === 'number'
+            ? (notifRes as any).pagination.total
+            : ((notifRes as any)?.data ?? []).filter((n: any) => !n.read).length;
+        setUnreadNotifications(notifCount);
+        setUnreadMessages(msgRes?.unread_count ?? 0);
+      } catch {
+        // Ignore badge fetch errors silently
+      }
     };
 
     fetchUnreadCounts();
-
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel('mobile-nav-badges')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, fetchUnreadCounts)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `receiver_id=eq.${user.id}` }, fetchUnreadCounts)
-      .subscribe();
-
+    pollRef.current = setInterval(fetchUnreadCounts, 30_000);
     return () => {
-      supabase.removeChannel(channel);
+      if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [user]);
 

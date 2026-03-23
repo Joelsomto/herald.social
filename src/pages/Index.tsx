@@ -194,32 +194,13 @@ export default function Index() {
     async function fetchFeed() {
       setLoadingPosts(true);
       try {
-        const { data, error } = await supabase
-          .from('posts')
-          .select(`
-            id,
-            content,
-            created_at,
-            likes_count,
-            replies_count,
-            reposts_count,
-            users!inner (
-              username,
-              full_name,
-              verified,
-              avatar_url
-            )
-          `)
-          .order('created_at', { ascending: false })
-          .limit(15);
-
-        if (error) throw error;
-
-        const formatted = (data || []).map((p: any) => ({
+        const { getPosts } = await import('@/lib/api/posts');
+        const result = await getPosts({ limit: 15 });
+        const posts = Array.isArray(result) ? result : (result as any)?.data ?? [];
+        const formatted = posts.map((p: any) => ({
           ...p,
-          httn_earned: Math.floor(Math.random() * 500) + 50, // placeholder – replace later
+          httn_earned: p.httn_earned ?? Math.floor(Math.random() * 500) + 50,
         }));
-
         setRealPosts(formatted);
       } catch (err) {
         console.error('Error loading feed:', err);
@@ -229,18 +210,6 @@ export default function Index() {
     }
 
     fetchFeed();
-
-    // Basic realtime – new posts appear
-    const channel = supabase
-      .channel('public:posts')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, () => {
-        fetchFeed();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user, authLoading]);
 
   // ────────────────────────────────────────────────

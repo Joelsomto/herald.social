@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { apiGet, apiPost, apiDelete } from '@/lib/apiClient';
 
 interface FollowButtonProps {
   targetUserId: string;
@@ -10,7 +11,12 @@ interface FollowButtonProps {
   size?: 'sm' | 'default';
 }
 
-export function FollowButton({ targetUserId, onFollowChange, variant = 'outline', size = 'sm' }: FollowButtonProps) {
+export function FollowButton({
+  targetUserId,
+  onFollowChange,
+  variant = 'outline',
+  size = 'sm',
+}: FollowButtonProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isFollowing, setIsFollowing] = useState(false);
@@ -20,87 +26,60 @@ export function FollowButton({ targetUserId, onFollowChange, variant = 'outline'
     if (user && targetUserId) {
       checkFollowStatus();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, targetUserId]);
 
   const checkFollowStatus = async () => {
     if (!user) return;
-
-    const { data } = await supabase
-      .from('followers')
-      .select('id')
-      .eq('follower_id', user.id)
-      .eq('following_id', targetUserId)
-      .maybeSingle();
-
-    setIsFollowing(!!data);
+    try {
+      const data = await apiGet<{ is_following: boolean }>(
+        `/follow/check/?user_id=${targetUserId}`
+      );
+      setIsFollowing(data?.is_following ?? false);
+    } catch {
+      setIsFollowing(false);
+    }
   };
 
   const handleToggleFollow = async () => {
     if (!user) {
-      toast({ title: 'Sign in required', description: 'Please sign in to follow users', variant: 'destructive' });
+      toast({
+        title: 'Sign in required',
+        description: 'Please sign in to follow users',
+        variant: 'destructive',
+      });
       return;
     }
 
     if (user.id === targetUserId) return;
 
     setIsLoading(true);
-
-    if (isFollowing) {
-      // Unfollow
-      const { error } = await supabase
-        .from('followers')
-        .delete()
-        .eq('follower_id', user.id)
-        .eq('following_id', targetUserId);
-
-      if (!error) {
-        // Decrement counts
-        await Promise.all([
-          supabase.from('users').update({ 
-            following_count: Math.max(0, (await supabase.from('users').select('following_count').eq('user_id', user.id).single()).data?.following_count || 1 - 1)
-          }).eq('user_id', user.id),
-          supabase.from('users').update({
-            followers_count: Math.max(0, (await supabase.from('users').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 1 - 1)
-          }).eq('user_id', targetUserId),
-        ]);
-        
+    try {
+      if (isFollowing) {
+        await apiDelete(`/users/${targetUserId}/follow/`);
         setIsFollowing(false);
         onFollowChange?.(false);
         toast({ title: 'Unfollowed', description: 'You unfollowed this user' });
-      }
-    } else {
-      // Follow
-      const { error } = await supabase
-        .from('followers')
-        .insert({ follower_id: user.id, following_id: targetUserId });
-
-      if (!error) {
-        // Increment counts
-        await Promise.all([
-          supabase.from('users').update({ 
-            following_count: ((await supabase.from('users').select('following_count').eq('user_id', user.id).single()).data?.following_count || 0) + 1
-          }).eq('user_id', user.id),
-          supabase.from('users').update({
-            followers_count: ((await supabase.from('users').select('followers_count').eq('user_id', targetUserId).single()).data?.followers_count || 0) + 1
-          }).eq('user_id', targetUserId),
-        ]);
-
+      } else {
+        await apiPost(`/users/${targetUserId}/follow/`, {});
         setIsFollowing(true);
         onFollowChange?.(true);
         toast({ title: 'Following!', description: 'You are now following this user' });
-
-        // Create notification
-        await supabase.from('notifications').insert({
-          user_id: targetUserId,
-          type: 'follow',
-          title: 'New Follower',
-          message: 'Someone started following you!',
-          actor_id: user.id,
+      }
+    } catch (err: any) {
+      if (err?.status === 409) {
+        setIsFollowing(true);
+        onFollowChange?.(true);
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Something went wrong. Please try again.',
+          variant: 'destructive',
         });
       }
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   };
 
   if (!user || user.id === targetUserId) return null;
@@ -113,7 +92,7 @@ export function FollowButton({ targetUserId, onFollowChange, variant = 'outline'
       disabled={isLoading}
       className="rounded-full font-semibold min-w-[80px]"
     >
-      {isLoading ? '...' : isFollowing ? 'Following' : 'Follow'}
+      {isLoading ? '…' : isFollowing ? 'Following' : 'Follow'}
     </Button>
   );
 }

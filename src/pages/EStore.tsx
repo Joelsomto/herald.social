@@ -147,8 +147,13 @@ export default function EStore() {
 
   const fetchWallet = useCallback(async () => {
     if (!user) return;
-    const { data } = await supabase.from('wallets').select('httn_points, httn_tokens, espees, pending_rewards').eq('user_id', user.id).maybeSingle();
-    if (data) setWallet(data);
+    try {
+      const { getCurrentUserWallet } = await import('@/lib/api/wallets');
+      const data = await getCurrentUserWallet();
+      if (data) setWallet(data);
+    } catch {
+      // Silently ignore wallet fetch errors
+    }
   }, [user]);
 
   useEffect(() => {

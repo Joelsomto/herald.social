@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-// Supabase removed
+import { apiGet } from '@/lib/apiClient';
+import { API_BASE_URL } from '@/lib/apiConfig';
 
 export default function DbTest() {
   const [results, setResults] = useState<string[]>([]);
@@ -13,118 +14,79 @@ export default function DbTest() {
     const testConnection = async () => {
       setLoading(true);
       setResults([]);
-      
+
       // Check env vars
-      const url = import.meta.env.VITE_SUPABASE_URL;
-      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      
+      const apiUrl = API_BASE_URL;
       addResult(`Environment check:`);
-      addResult(`  URL: ${url ? '✅ Set' : '❌ Missing'}`);
-      addResult(`  Key: ${key ? '✅ Set' : '❌ Missing'}`);
-      
-      if (!url || !key) {
-        addResult('Environment variables not loaded!', true);
+      addResult(`  API Base URL: ${apiUrl ? `✅ ${apiUrl}` : '❌ Missing'}`);
+
+      if (!apiUrl) {
+        addResult('VITE_API_BASE_URL environment variable is not set!', true);
         setLoading(false);
         return;
       }
 
       try {
-        // Test 1: Basic connection
-        addResult('\n1. Testing basic connection...');
-        const { error: healthError } = await supabase
-          .from('users')
-          .select('count')
-          .limit(1);
-        
-        if (healthError) {
-          addResult(`Connection failed: ${healthError.message}`, true);
-          addResult(`Error code: ${healthError.code || 'N/A'}`, true);
-          addResult(`Error details: ${JSON.stringify(healthError)}`, true);
-        } else {
-          addResult('Basic connection successful');
+        // Test 1: General health
+        addResult('\n1. Testing general API health...');
+        try {
+          const health = await apiGet<{ status: string }>('/health/');
+          addResult(`API health: ${health?.status ?? 'ok'}`);
+        } catch (err: any) {
+          addResult(`API health check failed: ${err.message}`, true);
         }
 
-        // Test 2: Fetch users
-        addResult('\n2. Testing users table...');
-        const { data: profiles, error: profilesError } = await supabase
-          .from('users')
-          .select('*')
-          .limit(5);
-        
-        if (profilesError) {
-          addResult(`Users query failed: ${profilesError.message}`, true);
-          addResult(`Error code: ${profilesError.code || 'N/A'}`, true);
-          addResult(`Error hint: ${profilesError.hint || 'N/A'}`, true);
-        } else {
-          addResult(`Users query successful. Found ${profiles?.length || 0} users`);
+        // Test 2: Database health
+        addResult('\n2. Testing database connectivity...');
+        try {
+          const dbHealth = await apiGet<{ status: string; database?: string }>('/health/db/');
+          addResult(`Database health: ${dbHealth?.status ?? 'ok'} — ${dbHealth?.database ?? ''}`);
+        } catch (err: any) {
+          addResult(`Database health check failed: ${err.message}`, true);
         }
 
-        // Test 3: Fetch posts
-        addResult('\n3. Testing posts table...');
-        const { data: posts, error: postsError } = await supabase
-          .from('posts')
-          .select('*')
-          .limit(5);
-        
-        if (postsError) {
-          addResult(`Posts query failed: ${postsError.message}`, true);
-          addResult(`Error code: ${postsError.code || 'N/A'}`, true);
-        } else {
-          addResult(`Posts query successful. Found ${posts?.length || 0} posts`);
+        // Test 3: Auth health / token check
+        addResult('\n3. Testing auth endpoint...');
+        const token =
+          localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+        addResult(`  JWT token in storage: ${token ? '✅ Present' : '⚠️  Not found (not logged in?)'}`);
+        try {
+          const authHealth = await apiGet<{ status: string; user?: string }>('/health/auth/');
+          addResult(`Auth health: ${authHealth?.status ?? 'ok'}`);
+          if (authHealth?.user) addResult(`  Authenticated as: ${authHealth.user}`);
+        } catch (err: any) {
+          addResult(`Auth health check failed: ${err.message}`, true);
         }
 
-        // Test 4: Check auth
-        addResult('\n4. Testing auth...');
-        const { data: { session }, error: authError } = await supabase.auth.getSession();
-        
-        if (authError) {
-          addResult(`Auth check failed: ${authError.message}`, true);
-        } else {
-          addResult(`Auth check successful. Session: ${session ? 'Active' : 'None'}`);
+        // Test 4: Users endpoint
+        addResult('\n4. Testing users API...');
+        try {
+          const users = await apiGet<any>('/users/?limit=5');
+          const count = Array.isArray(users)
+            ? users.length
+            : (users as any)?.results?.length ?? (users as any)?.count ?? 0;
+          addResult(`Users endpoint reachable. Returned ${count} record(s).`);
+        } catch (err: any) {
+          addResult(`Users endpoint failed: ${err.message}`, true);
         }
 
-        // Test 5: Explain users table
-        addResult('\n5. Important: Users Table Info...');
-        addResult('ℹ️  User Table Information:');
-        addResult('   - Supabase Auth uses: auth.users (in auth schema)');
-        addResult('   - "user" (singular) view may exist in Supabase dashboard');
-        addResult('   - App user data: public.users (display_name, username, etc.)');
-        addResult('   - Use users table in app: SELECT * FROM users');
-        addResult('   - To get auth users: supabase.auth.getUser()');
-        
-        // Test if user view exists
-        addResult('\n6. Testing user view (if available)...');
-        const { data: userViewData, error: userViewError } = await supabase
-          .from('user')
-          .select('count')
-          .limit(1);
-        
-        if (userViewError) {
-          addResult(`   "user" view not accessible via client: ${userViewError.message}`);
-          addResult('   (May be available in Supabase SQL editor only)');
-        } else {
-          addResult('   ✅ "user" view is accessible');
-        }
-        
-        // Test 7: Show correct way to query user data
-        addResult('\n7. Querying user data correctly...');
-        const { data: userProfiles, error: userProfilesError } = await supabase
-          .from('users')
-          .select('user_id, username, display_name, created_at')
-          .limit(5);
-        
-        if (userProfilesError) {
-          addResult(`Error querying users: ${userProfilesError.message}`, true);
-        } else {
-          addResult(`✅ Found ${userProfiles?.length || 0} users`);
-          addResult('   Use: SELECT * FROM users');
+        // Test 5: Posts endpoint
+        addResult('\n5. Testing posts API...');
+        try {
+          const posts = await apiGet<any>('/posts/?limit=5');
+          const count = Array.isArray(posts)
+            ? posts.length
+            : (posts as any)?.results?.length ?? (posts as any)?.count ?? 0;
+          addResult(`Posts endpoint reachable. Returned ${count} record(s).`);
+        } catch (err: any) {
+          addResult(`Posts endpoint failed: ${err.message}`, true);
         }
 
       } catch (error: any) {
         addResult(`Unexpected error: ${error.message}`, true);
         addResult(`Stack: ${error.stack}`, true);
       }
-      
+
       setLoading(false);
     };
 
@@ -134,8 +96,8 @@ export default function DbTest() {
   return (
     <div className="min-h-screen p-8 bg-background">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-2xl font-bold mb-4">Database Connection Test</h1>
-        {loading && <p className="text-muted-foreground mb-4">Testing...</p>}
+        <h1 className="text-2xl font-bold mb-4">Backend Connection Test</h1>
+        {loading && <p className="text-muted-foreground mb-4">Running tests...</p>}
         <div className="bg-card border rounded-lg p-4 font-mono text-sm whitespace-pre-wrap">
           {results.length === 0 ? 'Running tests...' : results.join('\n')}
         </div>

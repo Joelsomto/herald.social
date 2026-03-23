@@ -129,3 +129,12 @@ export const getTopUsers = async (params?: { limit?: number; sort?: string }) =>
   const query = queryParams.toString();
   return apiGet<ApiUser[]>(`/users${query ? `?${query}` : ''}`);
 };
+
+export const searchUsers = async (params: { q: string; limit?: number }) => {
+  const queryParams = new URLSearchParams();
+  queryParams.append('q', params.q);
+  if (params.limit) queryParams.append('limit', params.limit.toString());
+  return apiGet<{ data?: ApiUser[]; results?: ApiUser[] } | ApiUser[]>(
+    `/users/search/?${queryParams.toString()}`
+  );
+};

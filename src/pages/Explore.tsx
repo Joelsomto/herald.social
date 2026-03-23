@@ -139,7 +139,7 @@ export default function Explore() {
           likes_count: p.likes_count ?? 0,
           comments_count: p.comments_count ?? 0,
           shares_count: p.shares_count ?? 0,
-          httn_earned: p.htn_earned ?? 0,
+          httn_earned: p.httn_earned ?? 0,
           author: typeof p.author_id === 'object' && p.author_id 
             ? {
                 display_name: p.author_id.display_name || 'Unknown',

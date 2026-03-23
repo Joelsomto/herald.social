@@ -34,6 +34,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { joinCommunity, leaveCommunity, getCommunities } from '@/lib/api/communities';
+import { apiGet } from '@/lib/apiClient';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 
@@ -116,18 +117,10 @@ export default function Communities() {
   const fetchJoinedCommunities = useCallback(async () => {
     if (!user) return;
     try {
-      // Try to fetch joined communities from backend if endpoint exists
-      // GET /api/v1/users/me/communities/
-      const res = await fetch('/api/v1/users/me/communities/', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}` } });
-      if (res.ok) {
-        const data = await res.json();
-        setJoinedCommunities(Array.isArray(data) ? data.map((c: any) => c.id) : []);
-      } else {
-        setJoinedCommunities([]);
-      }
-    } catch (error) {
+      const data = await apiGet<any[]>('/users/me/communities/');
+      setJoinedCommunities(Array.isArray(data) ? data.map((c: any) => c.id) : []);
+    } catch {
       setJoinedCommunities([]);
-      console.error('Failed to fetch joined communities:', error);
     }
   }, [user]);
 

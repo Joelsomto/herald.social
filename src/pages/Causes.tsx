@@ -77,8 +77,8 @@ export default function Causes() {
   const [causes, setCauses] = useState<Cause[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-      // TODO: Integrate wallet fetch with new backend
-      setWallet(null);
+  const [selectedCause, setSelectedCause] = useState<Cause | null>(null);
+  const [donateDialogOpen, setDonateDialogOpen] = useState(false);
   const [donationAmount, setDonationAmount] = useState('');
   const [donationMessage, setDonationMessage] = useState('');
   const [loading, setLoading] = useState(true);
@@ -98,11 +98,7 @@ export default function Causes() {
       setLoading(false);
     }
   }, []);
-      // TODO: Integrate donation with new backend
-      toast({ 
-        title: 'Thank you!', 
-        description: `Your donation of ${amount} HTTN to "${selectedCause.title}" has been recorded.` 
-      });
+
   const fetchWallet = useCallback(async () => {
     if (!user) return;
     try {

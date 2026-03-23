@@ -22,7 +22,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUserWallet, convertPointsToTokens, transferWallet, getWalletTransactions } from '@/lib/api/wallets';
-import { updateCurrentUser } from '@/lib/api/users';
+import { searchUsers } from '@/lib/api/users';
 import { ApiError } from '@/lib/apiClient';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 
@@ -142,18 +142,32 @@ export default function Wallet() {
 
     setSending(true);
     try {
-      // TODO: Implement username to user ID lookup endpoint
-      // For now, we need the recipient_id. This could be validated/looked up from a search endpoint
+      // Look up recipient user ID from username
+      const usernameClean = sendUsername.replace(/^@/, '').trim();
+      const searchResults = await searchUsers({ q: usernameClean, limit: 5 });
+      const recipient = searchResults.find(
+        (u: any) => u.username?.toLowerCase() === usernameClean.toLowerCase()
+      );
+      if (!recipient) {
+        toast({
+          title: 'User Not Found',
+          description: `No user found with username @${usernameClean}`,
+          variant: 'destructive',
+        });
+        setSending(false);
+        return;
+      }
+
       const result = await transferWallet({
-        recipient_id: sendUsername, // In production, lookup user by username first
+        recipient_id: recipient.id,
         amount,
-        currency: 'points'
+        currency: 'points',
       });
-      
+
       if (result.success) {
         toast({
           title: 'Success',
-          description: `Transferred ${amount} HTTN Points to ${sendUsername}`,
+          description: `Transferred ${amount} HTTN Points to @${usernameClean}`,
         });
         setSendUsername('');
         setSendAmount('');

@@ -61,11 +61,11 @@ export const getStreams = async (params?: {
   if (params?.sort) queryParams.append('sort', params.sort);
 
   const query = queryParams.toString();
-  return apiGet<StreamsResponse>(`/streams${query ? `?${query}` : ''}`);
+  return apiGet<StreamsResponse>(`/streams/${query ? `?${query}` : ''}`);
 };
 
 export const getStream = async (streamId: string) => {
-  return apiGet<LiveStream>(`/streams/${streamId}`);
+  return apiGet<LiveStream>(`/streams/${streamId}/`);
 };
 
 export const startStream = async (payload: {
@@ -73,11 +73,11 @@ export const startStream = async (payload: {
   description?: string;
   stream_url?: string;
 }) => {
-  return apiPost<LiveStream>('/streams', { body: payload });
+  return apiPost<LiveStream>('/streams/', { body: payload });
 };
 
 export const updateStream = async (streamId: string, payload: Partial<LiveStream>) => {
-  return apiPatch<LiveStream>(`/streams/${streamId}`, { body: payload });
+  return apiPatch<LiveStream>(`/streams/${streamId}/`, { body: payload });
 };
 
 export const deleteStream = async (streamId: string) => {

@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getTopUsers } from '@/lib/api/users';
-import { getUserWallet } from '@/lib/api/wallets';
+import {
+  getReputationLeaderboard,
+  getEngagementLeaderboard,
+  getPointsLeaderboard,
+  getMyLeaderboardRank,
+  type LeaderboardEntry,
+} from '@/lib/api/leaderboard';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,17 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 
-interface LeaderboardEntry {
-  user_id: string;
-  display_name: string;
-  username: string;
-  avatar_url: string | null;
-  tier: string;
-  reputation: number;
-  is_verified: boolean;
-  total_engagement: number;
-  httn_points?: number;
-}
+// LeaderboardEntry type imported from @/lib/api/leaderboard
 
 const rankIcons = [
   { icon: Crown, color: 'text-primary', bgColor: 'bg-primary/20' },
@@ -58,32 +53,20 @@ export default function Leaderboard() {
     setError(null);
     setLoading(true);
     try {
-      // Fetch reputation leaders
-      const repData = await getTopUsers({ limit: 50, sort: '-reputation' });
-      setReputationLeaders(repData || []);
-      if (user && repData) {
-        const userIndex = repData.findIndex(p => p.user_id === user.id || p.id === user.id);
-        if (userIndex !== -1) setUserRank(userIndex + 1);
+      const [repData, engData, ptsData] = await Promise.all([
+        getReputationLeaderboard(50),
+        getEngagementLeaderboard(50),
+        getPointsLeaderboard(50),
+      ]);
+
+      setReputationLeaders(repData);
+      setEngagementLeaders(engData);
+      setPointsLeaders(ptsData);
+
+      if (user) {
+        const rankData = await getMyLeaderboardRank();
+        if (rankData) setUserRank(rankData.rank);
       }
-
-      // Fetch engagement leaders
-      const engData = await getTopUsers({ limit: 50, sort: '-total_engagement' });
-      setEngagementLeaders(engData || []);
-
-      // Fetch points leaders (simulate by sorting top users by httn_points if available)
-      // If backend provides a points leaderboard endpoint, use it here
-      const pointsCandidates = await getTopUsers({ limit: 100 });
-      const pointsWithWallets = await Promise.all(
-        (pointsCandidates || []).map(async (u) => {
-          try {
-            const wallet = await getUserWallet(u.id || u.user_id);
-            return { ...u, httn_points: wallet?.httn_points || 0 };
-          } catch {
-            return { ...u, httn_points: 0 };
-          }
-        })
-      );
-      setPointsLeaders(pointsWithWallets.sort((a, b) => (b.httn_points || 0) - (a.httn_points || 0)).slice(0, 50));
     } catch (e) {
       setError('Failed to load leaderboard.');
     } finally {

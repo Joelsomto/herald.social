@@ -14,7 +14,7 @@ import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Image, Smile, Calendar, MapPin, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle } from 'lucide-react';
+import { Sparkles, Image, Smile, Calendar, MapPin, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle, Globe2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
@@ -78,6 +78,8 @@ interface Post {
 
 type FeedFilter = 'recent' | 'trending' | 'following';
 
+const QUICK_POST_LIMIT = 280;
+const QUICK_POST_WARNING_THRESHOLD = 40;
 const FEED_POSTS_CACHE_TTL_MS = 30_000;
 const FEED_USER_DATA_CACHE_TTL_MS = 120_000;
 const FEED_TOP_CREATORS_CACHE_TTL_MS = 300_000;
@@ -132,6 +134,7 @@ export default function Feed() {
   const filterMountedRef = useRef(false);
   const postsRef = useRef<Post[]>([]);
   const feedFilterRef = useRef<FeedFilter>('recent');
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -140,6 +143,14 @@ export default function Feed() {
   useEffect(() => {
     feedFilterRef.current = feedFilter;
   }, [feedFilter]);
+
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
+  }, [postContent]);
 
   const mapPost = useCallback((p: any): Post => {
     const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
@@ -790,12 +801,13 @@ export default function Feed() {
   };
 
   const handleQuickPost = async () => {
-    if (!user || !postContent.trim() || isPosting) return;
+    const trimmedContent = postContent.trim();
+    if (!user || !trimmedContent || isPosting || trimmedContent.length > QUICK_POST_LIMIT) return;
     
     setIsPosting(true);
     try {
       await createPost({
-        content: postContent.trim(),
+        content: trimmedContent,
       });
 
       toast({
@@ -858,6 +870,12 @@ export default function Feed() {
       <TasksPanel tasks={formattedTasks} onClaim={handleClaimTask} />
     </RightSidebarWithAds>
   );
+
+  const trimmedPostLength = postContent.trim().length;
+  const remainingCharacters = QUICK_POST_LIMIT - trimmedPostLength;
+  const isPostTooLong = remainingCharacters < 0;
+  const showCharacterCounter = trimmedPostLength > 0;
+  const characterProgress = Math.min(trimmedPostLength / QUICK_POST_LIMIT, 1);
 
 
   return (
@@ -926,7 +944,7 @@ export default function Feed() {
       </header>
 
       {/* Compose Box */}
-      <div className="border-b border-border p-4">
+      <div className="border-b border-border px-4 py-3">
         <div className="flex gap-3">
           {/* Avatar with UIAvatar fallback */}
           {profile?.avatar_url ? (
@@ -938,42 +956,89 @@ export default function Feed() {
               className="w-10 h-10 rounded-full object-cover flex-shrink-0"
             />
           )}
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
+            <button
+              type="button"
+              className="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+            >
+              <Globe2 className="h-4 w-4" />
+              Everyone can reply
+            </button>
             <Textarea
+              ref={composerRef}
               placeholder="What's happening?"
               value={postContent}
               onChange={(e) => setPostContent(e.target.value)}
-              className="min-h-[80px] border-none bg-transparent resize-none text-lg placeholder:text-muted-foreground focus-visible:ring-0 p-0"
+              className="min-h-[120px] max-h-[220px] overflow-y-auto border-none bg-transparent resize-none px-0 py-1 text-[1.45rem] leading-8 placeholder:text-muted-foreground/90 focus-visible:ring-0"
             />
-            <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full" onClick={() => setCreateDialogOpen(true)}>
-                  <Image className="w-5 h-5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">
-                  <Smile className="w-5 h-5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full" onClick={() => setScheduleDialogOpen(true)}>
-                  <Calendar className="w-5 h-5" />
-                </Button>
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">
-                  <MapPin className="w-5 h-5" />
-                </Button>
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-primary">
+                <Sparkles className="h-4 w-4" />
+                <span>Share it with your community</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Sparkles className="w-3 h-3 text-primary" />
-                  +25 HTTN
-                </span>
-                <Button 
-                  variant="gold" 
-                  className="rounded-full font-semibold"
-                  onClick={handleQuickPost}
-                  disabled={!postContent.trim() || isPosting}
-                >
-                  {isPosting ? 'Posting...' : 'Post'}
-                </Button>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10" onClick={() => setCreateDialogOpen(true)}>
+                    <Image className="w-5 h-5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
+                    <Smile className="w-5 h-5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10" onClick={() => setScheduleDialogOpen(true)}>
+                    <Calendar className="w-5 h-5" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
+                    <MapPin className="w-5 h-5" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-3">
+                  {showCharacterCounter && (
+                    <>
+                      <div className="relative flex h-8 w-8 items-center justify-center">
+                        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 32 32" aria-hidden="true">
+                          <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" strokeOpacity="0.14" strokeWidth="3" />
+                          <circle
+                            cx="16"
+                            cy="16"
+                            r="13"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeDasharray={81.68}
+                            strokeDashoffset={81.68 * (1 - characterProgress)}
+                            className={isPostTooLong ? 'text-destructive' : remainingCharacters <= QUICK_POST_WARNING_THRESHOLD ? 'text-primary' : 'text-primary/70'}
+                          />
+                        </svg>
+                        {remainingCharacters <= QUICK_POST_WARNING_THRESHOLD && (
+                          <span className={`text-[11px] font-semibold ${isPostTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
+                            {remainingCharacters}
+                          </span>
+                        )}
+                      </div>
+                      <div className="h-6 w-px bg-border" />
+                    </>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-primary" />
+                      +25 HTTN
+                    </span>
+                    <Button 
+                      variant="gold" 
+                      className="min-w-24 rounded-full px-5 font-semibold"
+                      onClick={handleQuickPost}
+                      disabled={!postContent.trim() || isPosting || isPostTooLong}
+                    >
+                      {isPosting ? 'Posting...' : 'Post'}
+                    </Button>
+                  </div>
+                </div>
               </div>
+              {isPostTooLong && (
+                <p className="mt-2 text-sm text-destructive">
+                  Posts can be up to {QUICK_POST_LIMIT} characters.
+                </p>
+              )}
             </div>
           </div>
         </div>

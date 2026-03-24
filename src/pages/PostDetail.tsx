@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { likePost, unlikePost, sharePost, bookmarkPost, unbookmarkPost, getPost } from '@/lib/api/posts';
+import { ApiError } from '@/lib/apiClient';
 
 interface Profile {
   id?: string;
@@ -63,6 +64,25 @@ function mapPost(raw: any): Post {
     isReposted: raw.is_reposted ?? false,
     isBookmarked: raw.is_bookmarked ?? false,
   };
+}
+
+function getErrorDescription(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (typeof details === 'string' && details.trim()) return details;
+    if (details && typeof details === 'object') {
+      const payload = details as Record<string, any>;
+      if (typeof payload.error === 'string' && payload.error.trim()) return payload.error;
+      if (payload.error && typeof payload.error === 'object' && typeof payload.error.message === 'string') {
+        return payload.error.message;
+      }
+      if (typeof payload.message === 'string' && payload.message.trim()) return payload.message;
+    }
+    if (error.message) return error.message;
+  }
+
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
 }
 
 export default function PostDetail() {
@@ -127,7 +147,7 @@ export default function PostDetail() {
       setPost(prev => prev ? { ...prev, isLiked: wasLiked, likes_count: previousLikes } : prev);
       toast({
         title: 'Error',
-        description: 'Failed to update like. Please try again.',
+        description: getErrorDescription(err, 'Failed to update like. Please try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -154,7 +174,7 @@ export default function PostDetail() {
       setPost(prev => prev ? { ...prev, isReposted: false, shares_count: previousShares } : prev);
       toast({
         title: 'Error',
-        description: 'Failed to repost. Please try again.',
+        description: getErrorDescription(err, 'Failed to repost. Please try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -187,7 +207,7 @@ export default function PostDetail() {
       setPost(prev => prev ? { ...prev, isBookmarked: wasBookmarked } : prev);
       toast({
         title: 'Error',
-        description: 'Failed to bookmark. Please try again.',
+        description: getErrorDescription(err, 'Failed to bookmark. Please try again.'),
         variant: 'destructive',
       });
     } finally {

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Heart, BadgeCheck, Send } from 'lucide-react';
 import { getPostComments, createComment, likeComment } from '@/lib/api/comments';
+import { ApiError } from '@/lib/apiClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
@@ -56,6 +57,25 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
   const [newComment, setNewComment] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const getErrorDescription = (error: unknown, fallback: string) => {
+    if (error instanceof ApiError) {
+      const details = error.details;
+      if (typeof details === 'string' && details.trim()) return details;
+      if (details && typeof details === 'object') {
+        const payload = details as Record<string, any>;
+        if (typeof payload.error === 'string' && payload.error.trim()) return payload.error;
+        if (payload.error && typeof payload.error === 'object' && typeof payload.error.message === 'string') {
+          return payload.error.message;
+        }
+        if (typeof payload.message === 'string' && payload.message.trim()) return payload.message;
+      }
+      if (error.message) return error.message;
+    }
+
+    if (error instanceof Error && error.message) return error.message;
+    return fallback;
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchComments();
@@ -83,7 +103,11 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       onCommentAdded?.(1);
       fetchComments();
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to post comment', variant: 'destructive' });
+      toast({
+        title: 'Error',
+        description: getErrorDescription(error, 'Failed to post comment.'),
+        variant: 'destructive'
+      });
     } finally {
       setIsLoading(false);
     }

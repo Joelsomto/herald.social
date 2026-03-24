@@ -20,6 +20,7 @@ import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, unbookmarkPost as apiUnbookmarkPost, createPost } from '@/lib/api/posts';
 import { getUserTasks, claimTaskReward } from '@/lib/api/tasks';
+import { ApiError } from '@/lib/apiClient';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -85,6 +86,25 @@ const feedUserDataCache = new Map<string, { wallet: WalletBalance | null; profil
 let topCreatorsCache: { data: Profile[]; fetchedAt: number } | null = null;
 
 const getFeedCacheKey = (userId: string | undefined, filter: FeedFilter) => `${userId ?? 'anonymous'}:${filter}`;
+
+const getErrorDescription = (error: unknown, fallback: string) => {
+  if (error instanceof ApiError) {
+    const details = error.details;
+    if (typeof details === 'string' && details.trim()) return details;
+    if (details && typeof details === 'object') {
+      const payload = details as Record<string, any>;
+      if (typeof payload.error === 'string' && payload.error.trim()) return payload.error;
+      if (payload.error && typeof payload.error === 'object' && typeof payload.error.message === 'string') {
+        return payload.error.message;
+      }
+      if (typeof payload.message === 'string' && payload.message.trim()) return payload.message;
+    }
+    if (error.message) return error.message;
+  }
+
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+};
 
 export default function Feed() {
   const { user } = useAuth();
@@ -394,7 +414,7 @@ export default function Feed() {
       });
       toast({
         title: 'Error',
-        description: 'Failed to update like. Please try again.',
+        description: getErrorDescription(error, 'Failed to update like. Please try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -456,7 +476,7 @@ export default function Feed() {
       });
       toast({
         title: 'Error',
-        description: 'Failed to repost. Please try again.',
+        description: getErrorDescription(error, 'Failed to repost. Please try again.'),
         variant: 'destructive',
       });
     } finally {
@@ -510,7 +530,7 @@ export default function Feed() {
       });
       toast({
         title: 'Error',
-        description: 'Failed to bookmark. Please try again.',
+        description: getErrorDescription(error, 'Failed to bookmark. Please try again.'),
         variant: 'destructive',
       });
     } finally {

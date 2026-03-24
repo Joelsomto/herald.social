@@ -15,9 +15,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { CommentsSection } from './CommentsSection';
 
 interface Author {
@@ -93,6 +99,7 @@ export function TwitterStylePost({
   const [repostCount, setRepostCount] = useState(reposts);
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(comments);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // Sync with prop changes
   useEffect(() => {
@@ -136,6 +143,11 @@ export function TwitterStylePost({
   const handleToggleComments = () => {
     setShowComments(!showComments);
     onComment?.(id);
+  };
+
+  const handleShareSelect = (target: ShareTarget) => {
+    onShare?.(id, target);
+    setShareDialogOpen(false);
   };
 
   return (
@@ -269,28 +281,35 @@ export function TwitterStylePost({
             )}
 
             {onShare && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group"
-                    aria-label="Share post"
-                  >
-                    <div className="p-2 rounded-full group-hover:bg-blue-400/10">
-                      <Share className="w-4 h-4" />
+              <>
+                <button
+                  onClick={() => setShareDialogOpen(true)}
+                  className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group"
+                  aria-label="Share post"
+                >
+                  <div className="p-2 rounded-full group-hover:bg-blue-400/10">
+                    <Share className="w-4 h-4" />
+                  </div>
+                </button>
+
+                <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+                  <DialogContent className="sm:max-w-sm">
+                    <DialogHeader>
+                      <DialogTitle>Share Post</DialogTitle>
+                      <DialogDescription>Choose where you want to share this post.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2">
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('whatsapp')}>Share to WhatsApp</Button>
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('x')}>Share to X</Button>
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('facebook')}>Share to Facebook</Button>
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('linkedin')}>Share to LinkedIn</Button>
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('telegram')}>Share to Telegram</Button>
+                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('copy')}>Copy link</Button>
+                      <Button variant="gold" className="justify-start" onClick={() => handleShareSelect('native')}>More options</Button>
                     </div>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => onShare(id, 'whatsapp')}>Share to WhatsApp</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onShare(id, 'x')}>Share to X</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onShare(id, 'facebook')}>Share to Facebook</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onShare(id, 'linkedin')}>Share to LinkedIn</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onShare(id, 'telegram')}>Share to Telegram</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => onShare(id, 'copy')}>Copy link</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onShare(id, 'native')}>More options</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                  </DialogContent>
+                </Dialog>
+              </>
             )}
           </div>
 

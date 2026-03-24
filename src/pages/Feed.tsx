@@ -108,7 +108,7 @@ const getErrorDescription = (error: unknown, fallback: string) => {
 
 export default function Feed() {
   const { user } = useAuth();
-  const { createNotification } = useRealTimeNotifications();
+  useRealTimeNotifications();
   const { toast } = useToast();
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -387,18 +387,6 @@ export default function Feed() {
       } else {
         // Like
         await apiLikePost(postId);
-
-        // Send notification to post author
-        if (post.author_id !== user.id) {
-          createNotification(
-            post.author_id,
-            'like',
-            'New Like',
-            'liked your post',
-            postId,
-            'post'
-          );
-        }
       }
     } catch (error) {
       console.error('Error toggling like:', error);
@@ -446,17 +434,6 @@ export default function Feed() {
 
     try {
       await apiSharePost(postId);
-
-      if (post.author_id !== user.id) {
-        createNotification(
-          post.author_id,
-          'share',
-          'Repost!',
-          'reposted your content',
-          postId,
-          'post'
-        );
-      }
 
       toast({
         title: 'Reposted',

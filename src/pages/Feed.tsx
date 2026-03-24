@@ -8,7 +8,6 @@ import { SchedulePostDialog } from '@/components/herald/SchedulePostDialog';
 import { FloatingMessageButton } from '@/components/herald/FloatingMessageButton';
 import { TrendingSection } from '@/components/herald/TrendingSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
-import { PullToRefresh } from '@/components/herald/PullToRefresh';
 import { SearchBar } from '@/components/herald/SearchBar';
 import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
@@ -21,7 +20,6 @@ import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, unbookmarkPost as apiUnbookmarkPost, createPost } from '@/lib/api/posts';
 import { getUserTasks, claimTaskReward } from '@/lib/api/tasks';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
 import {
   DropdownMenu,
@@ -77,11 +75,20 @@ interface Post {
 
 type FeedFilter = 'recent' | 'trending' | 'following';
 
+const FEED_POSTS_CACHE_TTL_MS = 30_000;
+const FEED_USER_DATA_CACHE_TTL_MS = 120_000;
+const FEED_TOP_CREATORS_CACHE_TTL_MS = 300_000;
+
+const feedPostsCache = new Map<string, { posts: Post[]; hasMore: boolean; fetchedAt: number }>();
+const feedUserDataCache = new Map<string, { wallet: WalletBalance | null; profile: Profile | null; tasks: UserTask[]; fetchedAt: number }>();
+let topCreatorsCache: { data: Profile[]; fetchedAt: number } | null = null;
+
+const getFeedCacheKey = (userId: string | undefined, filter: FeedFilter) => `${userId ?? 'anonymous'}:${filter}`;
+
 export default function Feed() {
   const { user } = useAuth();
   const { createNotification } = useRealTimeNotifications();
   const { toast } = useToast();
-  const isMobile = useIsMobile();
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [tasks, setTasks] = useState<UserTask[]>([]);
@@ -102,17 +109,46 @@ export default function Feed() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const filterMountedRef = useRef(false);
 
+  const mapPost = useCallback((p: any): Post => {
+    const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
+    const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
+    const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
+    const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
+    const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
+
+    return {
+      ...p,
+      author: {
+        id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id,
+        username,
+        display_name,
+        avatar_url,
+        is_verified,
+        is_creator,
+      },
+      media_url: p.media_url || null,
+      isLiked: p.is_liked ?? false,
+      isReposted: p.is_reposted ?? false,
+      isBookmarked: p.is_bookmarked ?? false,
+    };
+  }, []);
+
+  const updateFeedCache = useCallback((nextPosts: Post[], nextHasMore: boolean, filter: FeedFilter = feedFilter) => {
+    if (!user) return;
+    feedPostsCache.set(getFeedCacheKey(user.id, filter), {
+      posts: nextPosts,
+      hasMore: nextHasMore,
+      fetchedAt: Date.now(),
+    });
+  }, [feedFilter, user]);
+
   useEffect(() => {
     if (user) {
-      console.log('Feed.tsx: user detected, starting data fetch...');
-      
       Promise.all([
-        fetchUserData(),
-        fetchPosts(),
-        fetchTopCreators(),
-      ]).then(() => {
-        console.log('✅ Feed.tsx: all data fetched successfully');
-      }).catch(err => {
+        fetchUserData(true),
+        fetchPosts(feedFilter, true),
+        fetchTopCreators(true),
+      ]).catch(err => {
         console.error('Feed.tsx: Error loading feed data:', err);
       });
     }
@@ -147,9 +183,7 @@ export default function Feed() {
       return;
     }
     if (user) {
-      setPosts([]);
-      setHasMore(true);
-      fetchPosts(feedFilter);
+      fetchPosts(feedFilter, true);
     }
   }, [feedFilter]);
 
@@ -181,32 +215,13 @@ export default function Feed() {
         }
       }
 
-      if (newPosts.length < 10) setHasMore(false);
-      
-      // Map posts using flattened author fields (same as fetchPosts)
-      setPosts(prev => [...prev, ...newPosts.map((p: any) => {
-        const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
-        const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
-        const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
-        const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
-        const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-
-        return {
-          ...p,
-          author: {
-            id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id,
-            username,
-            display_name,
-            avatar_url,
-            is_verified,
-            is_creator,
-          },
-          media_url: p.media_url || null,
-          isLiked: p.is_liked ?? false,
-          isReposted: p.is_reposted ?? false,
-          isBookmarked: p.is_bookmarked ?? false,
-        };
-      })]);
+      const nextHasMore = newPosts.length >= 10;
+      setHasMore(nextHasMore);
+      setPosts(prev => {
+        const nextPosts = [...prev, ...newPosts.map(mapPost)];
+        updateFeedCache(nextPosts, nextHasMore);
+        return nextPosts;
+      });
     } catch (error) {
       console.error('Error loading more posts:', error);
       setHasMore(false);
@@ -216,58 +231,74 @@ export default function Feed() {
   };
 
   const loadNewPosts = async () => {
-    await fetchPosts();
+    await fetchPosts(feedFilter, false);
     setNewPostsAvailable(0);
   };
 
-  const fetchUserData = async () => {
+  const fetchUserData = async (preferCache = true) => {
     if (!user) return;
 
+    const cached = feedUserDataCache.get(user.id);
+    if (preferCache && cached && Date.now() - cached.fetchedAt < FEED_USER_DATA_CACHE_TTL_MS) {
+      setWallet(cached.wallet);
+      setProfile(cached.profile);
+      setTasks(cached.tasks);
+      return;
+    }
+
     try {
-      console.log('fetchUserData: starting');
-      const startTime = performance.now();
-      
       const results = await Promise.allSettled([
         getCurrentUserWallet(),
         getCurrentUser(),
         getUserTasks({ completed: false }),
       ]);
 
-      const duration = performance.now() - startTime;
-      console.log(`✅ fetchUserData: completed in ${duration.toFixed(0)}ms`);
+      const nextWallet = results[0].status === 'fulfilled' ? results[0].value : null;
+      const nextProfile = results[1].status === 'fulfilled' ? results[1].value as any : null;
+      const nextTasks = results[2].status === 'fulfilled' ? results[2].value as any : [];
 
-      if (results[0].status === 'fulfilled') {
-        console.log('  Wallet data:', results[0].value);
-        setWallet(results[0].value);
-      }
-      if (results[1].status === 'fulfilled') {
-        console.log('  Profile data:', results[1].value);
-        setProfile(results[1].value as any);
-      }
-      if (results[2].status === 'fulfilled') {
-        console.log('  Tasks data:', results[2].value);
-        setTasks(results[2].value as any);
-      }
+      setWallet(nextWallet);
+      setProfile(nextProfile);
+      setTasks(nextTasks);
+      feedUserDataCache.set(user.id, {
+        wallet: nextWallet,
+        profile: nextProfile,
+        tasks: nextTasks,
+        fetchedAt: Date.now(),
+      });
     } catch (error) {
-      console.error('❌ fetchUserData error:', error instanceof Error ? error.message : error);
+      console.error('fetchUserData error:', error instanceof Error ? error.message : error);
     }
   };
 
-  const fetchPosts = async (filter: FeedFilter = feedFilter) => {
+  const fetchPosts = async (filter: FeedFilter = feedFilter, preferCache = true) => {
+    if (!user) return;
+
+    const cacheKey = getFeedCacheKey(user.id, filter);
+    const cached = feedPostsCache.get(cacheKey);
+    if (preferCache && cached && Date.now() - cached.fetchedAt < FEED_POSTS_CACHE_TTL_MS) {
+      setPosts(cached.posts);
+      setHasMore(cached.hasMore);
+      setError(null);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
       let postsArray: any[] = [];
 
+      let nextHasMore = false;
+
       if (filter === 'trending') {
         const response = await getTrendingPosts(20);
         postsArray = response.data;
-        setHasMore(false); // trending has no pagination
+        nextHasMore = false;
       } else if (filter === 'following') {
         const response = await getFollowingPosts({ page: 1, limit: 20 });
         postsArray = response.data;
-        setHasMore(postsArray.length >= 20);
+        nextHasMore = postsArray.length >= 20;
       } else {
         const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
         if (Array.isArray(response)) {
@@ -275,36 +306,12 @@ export default function Feed() {
         } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
           postsArray = response.data;
         }
-        setHasMore(postsArray.length >= 20);
+        nextHasMore = postsArray.length >= 20;
       }
-
-      if (postsArray.length > 0) {
-        setPosts(postsArray.map((p: any) => {
-          const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
-          const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
-          const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
-          const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
-          const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-
-          return {
-            ...p,
-            author: {
-              id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id,
-              username,
-              display_name,
-              avatar_url,
-              is_verified,
-              is_creator,
-            },
-            media_url: p.media_url || null,
-            isLiked: p.is_liked ?? false,
-            isReposted: p.is_reposted ?? false,
-            isBookmarked: p.is_bookmarked ?? false,
-          };
-        }));
-      } else {
-        setPosts([]);
-      }
+      const mappedPosts = postsArray.map(mapPost);
+      setPosts(mappedPosts);
+      setHasMore(nextHasMore);
+      updateFeedCache(mappedPosts, nextHasMore, filter);
     } catch (error) {
       console.error('fetchPosts error:', error instanceof Error ? error.message : error);
       setPosts([]);
@@ -314,18 +321,17 @@ export default function Feed() {
     }
   };
 
-  const fetchTopCreators = async () => {
-    try {
-      console.log('fetchTopCreators: starting');
-      const startTime = performance.now();
-      
-      const data = await getTopUsers({ limit: 5, sort: '-reputation' });
+  const fetchTopCreators = async (preferCache = true) => {
+    if (preferCache && topCreatorsCache && Date.now() - topCreatorsCache.fetchedAt < FEED_TOP_CREATORS_CACHE_TTL_MS) {
+      setTopCreators(topCreatorsCache.data);
+      return;
+    }
 
-      const duration = performance.now() - startTime;
-      console.log(`fetchTopCreators: completed in ${duration.toFixed(0)}ms`);
-      console.log(`fetchTopCreators: loaded ${data?.length ?? 0} creators`);
-      
-      if (data) setTopCreators(data as any);
+    try {
+      const data = await getTopUsers({ limit: 5, sort: '-reputation' });
+      const nextCreators = (data ?? []) as any;
+      setTopCreators(nextCreators);
+      topCreatorsCache = { data: nextCreators, fetchedAt: Date.now() };
     } catch (error) {
       console.error('fetchTopCreators error:', error instanceof Error ? error.message : error);
       setTopCreators([]);
@@ -343,11 +349,15 @@ export default function Feed() {
 
     // Optimistic update
     setInteractingPosts(prev => new Set(prev).add(postId));
-    setPosts(prevPosts => prevPosts.map(p => 
-      p.id === postId 
-        ? { ...p, isLiked: !wasLiked, likes_count: newLikeCount }
-        : p
-    ));
+    setPosts(prevPosts => {
+      const nextPosts = prevPosts.map(p => 
+        p.id === postId 
+          ? { ...p, isLiked: !wasLiked, likes_count: newLikeCount }
+          : p
+      );
+      updateFeedCache(nextPosts, hasMore);
+      return nextPosts;
+    });
 
     try {
       if (wasLiked) {
@@ -372,11 +382,15 @@ export default function Feed() {
     } catch (error) {
       console.error('Error toggling like:', error);
       // Revert optimistic update on error
-      setPosts(prevPosts => prevPosts.map(p => 
-        p.id === postId 
-          ? { ...p, isLiked: wasLiked, likes_count: post.likes_count }
-          : p
-      ));
+      setPosts(prevPosts => {
+        const nextPosts = prevPosts.map(p => 
+          p.id === postId 
+            ? { ...p, isLiked: wasLiked, likes_count: post.likes_count }
+            : p
+        );
+        updateFeedCache(nextPosts, hasMore);
+        return nextPosts;
+      });
       toast({
         title: 'Error',
         description: 'Failed to update like. Please try again.',
@@ -399,11 +413,15 @@ export default function Feed() {
 
     // Optimistic update
     setInteractingPosts(prev => new Set(prev).add(postId));
-    setPosts(prevPosts => prevPosts.map(p => 
-      p.id === postId 
-        ? { ...p, isReposted: true, shares_count: p.shares_count + 1 }
-        : p
-    ));
+    setPosts(prevPosts => {
+      const nextPosts = prevPosts.map(p => 
+        p.id === postId 
+          ? { ...p, isReposted: true, shares_count: p.shares_count + 1 }
+          : p
+      );
+      updateFeedCache(nextPosts, hasMore);
+      return nextPosts;
+    });
 
     try {
       await apiSharePost(postId);
@@ -426,11 +444,15 @@ export default function Feed() {
     } catch (error) {
       console.error('Error toggling repost:', error);
       // Revert optimistic update on error
-      setPosts(prevPosts => prevPosts.map(p => 
-        p.id === postId 
-          ? { ...p, isReposted: false, shares_count: post.shares_count }
-          : p
-      ));
+      setPosts(prevPosts => {
+        const nextPosts = prevPosts.map(p => 
+          p.id === postId 
+            ? { ...p, isReposted: false, shares_count: post.shares_count }
+            : p
+        );
+        updateFeedCache(nextPosts, hasMore);
+        return nextPosts;
+      });
       toast({
         title: 'Error',
         description: 'Failed to repost. Please try again.',
@@ -455,11 +477,15 @@ export default function Feed() {
 
     // Optimistic update
     setInteractingPosts(prev => new Set(prev).add(postId));
-    setPosts(prevPosts => prevPosts.map(p => 
-      p.id === postId 
-        ? { ...p, isBookmarked: !wasBookmarked }
-        : p
-    ));
+    setPosts(prevPosts => {
+      const nextPosts = prevPosts.map(p => 
+        p.id === postId 
+          ? { ...p, isBookmarked: !wasBookmarked }
+          : p
+      );
+      updateFeedCache(nextPosts, hasMore);
+      return nextPosts;
+    });
 
     try {
       if (wasBookmarked) {
@@ -472,11 +498,15 @@ export default function Feed() {
     } catch (error) {
       console.error('Error toggling bookmark:', error);
       // Revert optimistic update
-      setPosts(prevPosts => prevPosts.map(p => 
-        p.id === postId 
-          ? { ...p, isBookmarked: wasBookmarked }
-          : p
-      ));
+      setPosts(prevPosts => {
+        const nextPosts = prevPosts.map(p => 
+          p.id === postId 
+            ? { ...p, isBookmarked: wasBookmarked }
+            : p
+        );
+        updateFeedCache(nextPosts, hasMore);
+        return nextPosts;
+      });
       toast({
         title: 'Error',
         description: 'Failed to bookmark. Please try again.',
@@ -539,14 +569,16 @@ export default function Feed() {
   };
 
   const handleCommentAdded = useCallback((postId: string, countDelta = 1) => {
-    setPosts(prevPosts =>
-      prevPosts.map(post =>
+    setPosts(prevPosts => {
+      const nextPosts = prevPosts.map(post =>
         post.id === postId
           ? { ...post, comments_count: post.comments_count + countDelta }
           : post
-      )
-    );
-  }, []);
+      );
+      updateFeedCache(nextPosts, hasMore);
+      return nextPosts;
+    });
+  }, [hasMore, updateFeedCache]);
 
   const handleDeletePost = async (postId: string) => {
     if (!user) return;
@@ -560,7 +592,11 @@ export default function Feed() {
       await apiDeletePost(postId);
 
       // Optimistic update
-      setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
+      setPosts(prevPosts => {
+        const nextPosts = prevPosts.filter(p => p.id !== postId);
+        updateFeedCache(nextPosts, hasMore);
+        return nextPosts;
+      });
       
       toast({
         title: 'Post deleted',
@@ -584,7 +620,7 @@ export default function Feed() {
 
     try {
       await claimTaskReward(taskId);
-      fetchUserData();
+      fetchUserData(false);
     } catch (error) {
       console.error('Error claiming task reward:', error);
       toast({
@@ -612,7 +648,15 @@ export default function Feed() {
       setPostContent('');
       
       // Refresh feed and user data
-      await Promise.all([fetchPosts(), fetchUserData()]);
+      if (user) {
+        const cachePrefix = `${user.id}:`;
+        for (const key of Array.from(feedPostsCache.keys())) {
+          if (key.startsWith(cachePrefix)) {
+            feedPostsCache.delete(key);
+          }
+        }
+      }
+      await Promise.all([fetchPosts(feedFilter, false), fetchUserData(false)]);
     } catch (error: any) {
       console.error('Error creating post:', error);
       toast({
@@ -644,8 +688,7 @@ export default function Feed() {
   }));
 
   const handlePullRefresh = async () => {
-    await fetchPosts();
-    await fetchUserData();
+    await Promise.all([fetchPosts(feedFilter, false), fetchUserData(false), fetchTopCreators(false)]);
   };
 
   const rightSidebar = (
@@ -669,7 +712,7 @@ export default function Feed() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => fetchPosts()}
+              onClick={() => fetchPosts(feedFilter, false)}
               disabled={isLoading}
               className="rounded-full"
             >
@@ -787,7 +830,7 @@ export default function Feed() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => fetchPosts()}
+              onClick={() => fetchPosts(feedFilter, false)}
               className="mt-2"
             >
               Try Again
@@ -922,3 +965,4 @@ export default function Feed() {
     </MainLayout>
   );
 }
+

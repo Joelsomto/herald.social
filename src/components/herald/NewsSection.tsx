@@ -23,6 +23,9 @@ interface NewsItem {
   publishedAt: Date;
 }
 
+const NEWS_CACHE_TTL_MS = 120_000;
+const newsCache = new Map<boolean, { data: NewsItem[]; fetchedAt: number }>();
+
 function mapSourceType(raw: string | undefined): SourceType {
   if (!raw) return 'external';
   const lower = raw.toLowerCase();
@@ -70,11 +73,20 @@ export function NewsSection({ compact = false }: NewsSectionProps) {
     let active = true;
 
     const fetchNews = async () => {
+      const cached = newsCache.get(compact);
+      if (cached && Date.now() - cached.fetchedAt < NEWS_CACHE_TTL_MS) {
+        setNews(cached.data);
+        setLoading(false);
+        return;
+      }
+
       try {
         const res = await getNews({ limit: compact ? 6 : 20, sort: '-created_at' });
-        if (active) {
-          setNews(res.data.map(mapArticle));
-        }
+        if (!active) return;
+
+        const nextNews = res.data.map(mapArticle);
+        newsCache.set(compact, { data: nextNews, fetchedAt: Date.now() });
+        setNews(nextNews);
       } catch {
         if (active) setNews([]);
       } finally {

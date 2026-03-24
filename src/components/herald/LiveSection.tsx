@@ -12,6 +12,9 @@ interface LiveSectionProps {
   compact?: boolean;
 }
 
+const LIVE_STREAMS_CACHE_TTL_MS = 30_000;
+let liveStreamsCache: { data: LiveStream[]; fetchedAt: number } | null = null;
+
 export function LiveSection({ compact = false }: LiveSectionProps) {
   const navigate = useNavigate();
   const [streams, setStreams] = useState<LiveStream[]>([]);
@@ -21,11 +24,17 @@ export function LiveSection({ compact = false }: LiveSectionProps) {
     let active = true;
 
     const fetchStreams = async () => {
+      if (liveStreamsCache && Date.now() - liveStreamsCache.fetchedAt < LIVE_STREAMS_CACHE_TTL_MS) {
+        setStreams(liveStreamsCache.data);
+        setLoading(false);
+        return;
+      }
+
       try {
         const res = await getStreams({ status: 'live', limit: 6 });
-        if (active) {
-          setStreams(res.data);
-        }
+        if (!active) return;
+        liveStreamsCache = { data: res.data, fetchedAt: Date.now() };
+        setStreams(res.data);
       } catch {
         if (active) setStreams([]);
       } finally {

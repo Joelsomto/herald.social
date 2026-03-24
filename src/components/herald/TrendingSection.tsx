@@ -9,6 +9,9 @@ interface TrendingTopic {
   posts: string;
 }
 
+const TOPICS_CACHE_TTL_MS = 60_000;
+let topicsCache: { data: TrendingTopic[]; fetchedAt: number } | null = null;
+
 export function TrendingSection() {
   const [topics, setTopics] = useState<TrendingTopic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,6 +20,12 @@ export function TrendingSection() {
     let active = true;
 
     const fetchTopics = async () => {
+      if (topicsCache && Date.now() - topicsCache.fetchedAt < TOPICS_CACHE_TTL_MS) {
+        setTopics(topicsCache.data);
+        setLoading(false);
+        return;
+      }
+
       try {
         const res = await apiGet<any>('/trending/topics/?limit=5');
         const list: any[] = Array.isArray(res)
@@ -25,17 +34,18 @@ export function TrendingSection() {
 
         if (!active) return;
 
-        setTopics(
-          list.slice(0, 5).map((t: any) => {
-            const rawName = t.name ?? t.tag ?? t.topic ?? 'unknown';
-            const normalizedName = String(rawName).startsWith('#') ? String(rawName) : `#${String(rawName)}`;
+        const nextTopics = list.slice(0, 5).map((t: any) => {
+          const rawName = t.name ?? t.tag ?? t.topic ?? 'unknown';
+          const normalizedName = String(rawName).startsWith('#') ? String(rawName) : `#${String(rawName)}`;
 
-            return {
-              name: normalizedName,
-              posts: `${Number(t.posts_count ?? t.count ?? 0).toLocaleString()} posts`,
-            };
-          })
-        );
+          return {
+            name: normalizedName,
+            posts: `${Number(t.posts_count ?? t.count ?? 0).toLocaleString()} posts`,
+          };
+        });
+
+        topicsCache = { data: nextTopics, fetchedAt: Date.now() };
+        setTopics(nextTopics);
       } catch {
         if (active) setTopics([]);
       } finally {

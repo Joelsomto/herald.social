@@ -570,10 +570,6 @@ export default function Feed() {
           text: shareText,
           url: shareUrl,
         });
-        toast({
-          title: 'Shared',
-          description: 'Post shared successfully.',
-        });
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           console.error('Error sharing:', error);

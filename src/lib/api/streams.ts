@@ -48,6 +48,29 @@ export type StreamsResponse = {
   };
 };
 
+function normaliseStreams(raw: unknown, limit: number): StreamsResponse {
+  if (Array.isArray(raw)) {
+    return {
+      data: raw as LiveStream[],
+      pagination: { page: 1, limit, total: raw.length, total_pages: 1 },
+    };
+  }
+
+  const response = raw as any;
+  const data: LiveStream[] = response?.data ?? response?.results ?? [];
+  const total = response?.pagination?.total ?? response?.count ?? data.length;
+
+  return {
+    data,
+    pagination: {
+      page: response?.pagination?.page ?? response?.page ?? 1,
+      limit: response?.pagination?.limit ?? response?.limit ?? limit,
+      total,
+      total_pages: response?.pagination?.total_pages ?? response?.total_pages ?? Math.max(1, Math.ceil(total / Math.max(limit, 1))),
+    },
+  };
+}
+
 export const getStreams = async (params?: {
   page?: number;
   limit?: number;
@@ -61,7 +84,8 @@ export const getStreams = async (params?: {
   if (params?.sort) queryParams.append('sort', params.sort);
 
   const query = queryParams.toString();
-  return apiGet<StreamsResponse>(`/streams/${query ? `?${query}` : ''}`);
+  const raw = await apiGet<unknown>(`/streams/${query ? `?${query}` : ''}`);
+  return normaliseStreams(raw, params?.limit ?? 20);
 };
 
 export const getStream = async (streamId: string) => {

@@ -9,40 +9,47 @@ interface TrendingTopic {
   posts: string;
 }
 
-const FALLBACK_TOPICS: TrendingTopic[] = [
-  { name: '#HeraldSocial', posts: 'Trending' },
-  { name: '#HTTNRewards', posts: 'Trending' },
-  { name: '#Web3Creators', posts: 'Trending' },
-  { name: '#CreatorEconomy', posts: 'Trending' },
-  { name: '#EarnWithHerald', posts: 'Trending' },
-];
-
 export function TrendingSection() {
   const [topics, setTopics] = useState<TrendingTopic[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiGet<any>('/trending/topics/')
-      .then((res) => {
+    let active = true;
+
+    const fetchTopics = async () => {
+      try {
+        const res = await apiGet<any>('/trending/topics/?limit=5');
         const list: any[] = Array.isArray(res)
           ? res
           : (res as any)?.results ?? (res as any)?.data ?? [];
-        if (list.length > 0) {
-          setTopics(
-            list.slice(0, 5).map((t: any) => ({
-              name: t.name ?? t.tag ?? t.topic ?? '#Unknown',
-              posts:
-                t.posts_count != null
-                  ? `${Number(t.posts_count).toLocaleString()} posts`
-                  : 'Trending',
-            }))
-          );
-        } else {
-          setTopics(FALLBACK_TOPICS);
-        }
-      })
-      .catch(() => setTopics(FALLBACK_TOPICS))
-      .finally(() => setLoading(false));
+
+        if (!active) return;
+
+        setTopics(
+          list.slice(0, 5).map((t: any) => {
+            const rawName = t.name ?? t.tag ?? t.topic ?? 'unknown';
+            const normalizedName = String(rawName).startsWith('#') ? String(rawName) : `#${String(rawName)}`;
+
+            return {
+              name: normalizedName,
+              posts: `${Number(t.posts_count ?? t.count ?? 0).toLocaleString()} posts`,
+            };
+          })
+        );
+      } catch {
+        if (active) setTopics([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchTopics();
+    const intervalId = window.setInterval(fetchTopics, 60000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   return (
@@ -62,7 +69,7 @@ export function TrendingSection() {
               <Skeleton className="h-3 w-1/3" />
             </div>
           ))
-        ) : (
+        ) : topics.length > 0 ? (
           topics.map((topic, index) => (
             <div
               key={topic.name}
@@ -73,6 +80,10 @@ export function TrendingSection() {
               <p className="text-xs text-muted-foreground">{topic.posts}</p>
             </div>
           ))
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            No trending topics yet.
+          </p>
         )}
       </CardContent>
     </Card>

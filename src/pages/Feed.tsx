@@ -254,10 +254,10 @@ export default function Feed() {
   };
 
   const fetchPosts = async (filter: FeedFilter = feedFilter) => {
-    try {
-      console.log('fetchPosts: starting with filter:', filter);
-      const startTime = performance.now();
+    setIsLoading(true);
+    setError(null);
 
+    try {
       let postsArray: any[] = [];
 
       if (filter === 'trending') {
@@ -278,26 +278,14 @@ export default function Feed() {
         setHasMore(postsArray.length >= 20);
       }
 
-      const duration = performance.now() - startTime;
-      console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
-      
-      console.log(`fetchPosts: loaded ${postsArray.length} posts`);
-      
       if (postsArray.length > 0) {
-        // Log first post to see structure
-        console.log('fetchPosts first post structure:', JSON.stringify(postsArray[0], null, 2));
-        
         setPosts(postsArray.map((p: any) => {
-          // Backend now returns flattened author fields at top level
-          // Priority: use flattened fields, fallback to nested author, then author_id
           const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
           const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
           const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
           const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
           const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-          
-          console.log(`Post ${p.id} - username: ${username}, display_name: ${display_name}`);
-          
+
           return {
             ...p,
             author: {
@@ -309,7 +297,6 @@ export default function Feed() {
               is_creator,
             },
             media_url: p.media_url || null,
-            // Map snake_case API fields to camelCase component props
             isLiked: p.is_liked ?? false,
             isReposted: p.is_reposted ?? false,
             isBookmarked: p.is_bookmarked ?? false,
@@ -321,6 +308,9 @@ export default function Feed() {
     } catch (error) {
       console.error('fetchPosts error:', error instanceof Error ? error.message : error);
       setPosts([]);
+      setError('Unable to load feed right now. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 

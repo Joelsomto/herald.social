@@ -67,10 +67,28 @@ export function NewsSection({ compact = false }: NewsSectionProps) {
   const [filter, setFilter] = useState<'all' | SourceType>('all');
 
   useEffect(() => {
-    getNews({ limit: compact ? 6 : 20 })
-      .then((res) => setNews(res.data.map(mapArticle)))
-      .catch(() => setNews([]))
-      .finally(() => setLoading(false));
+    let active = true;
+
+    const fetchNews = async () => {
+      try {
+        const res = await getNews({ limit: compact ? 6 : 20, sort: '-created_at' });
+        if (active) {
+          setNews(res.data.map(mapArticle));
+        }
+      } catch {
+        if (active) setNews([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchNews();
+    const intervalId = window.setInterval(fetchNews, 120000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
   }, [compact]);
 
   const filteredNews = filter === 'all' ? news : news.filter((n) => n.sourceType === filter);

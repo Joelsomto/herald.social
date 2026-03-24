@@ -18,13 +18,28 @@ export function LiveSection({ compact = false }: LiveSectionProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getStreams({ status: 'live', limit: 6 })
-      .then((res) => {
-        const list = Array.isArray(res) ? res : (res as any)?.data ?? [];
-        setStreams(list);
-      })
-      .catch(() => setStreams([]))
-      .finally(() => setLoading(false));
+    let active = true;
+
+    const fetchStreams = async () => {
+      try {
+        const res = await getStreams({ status: 'live', limit: 6 });
+        if (active) {
+          setStreams(res.data);
+        }
+      } catch {
+        if (active) setStreams([]);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchStreams();
+    const intervalId = window.setInterval(fetchStreams, 30000);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   const formatViewers = (count: number) =>

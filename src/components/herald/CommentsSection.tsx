@@ -28,7 +28,7 @@ interface CommentsSectionProps {
   postId: string;
   isOpen?: boolean;
   onClose?: () => void;
-  onCommentAdded?: () => void;
+  onCommentAdded?: (countDelta?: number) => void;
 }
 
 /** Small reusable avatar: shows image if url present, else first letter of name. */
@@ -94,7 +94,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
     try {
       await createComment(postId, newComment.trim());
       setNewComment('');
-      onCommentAdded?.();
+      onCommentAdded?.(1);
       fetchComments();
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to post comment', variant: 'destructive' });
@@ -111,6 +111,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       await createComment(postId, replyContent.trim(), parentId);
       setReplyContent('');
       setReplyingTo(null);
+      onCommentAdded?.(1);
       fetchComments();
     } catch (error) {
       toast({ title: 'Error', description: 'Failed to post reply', variant: 'destructive' });

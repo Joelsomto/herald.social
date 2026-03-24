@@ -14,7 +14,7 @@ import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Image, Smile, Calendar, MapPin, BadgeCheck, Loader2, RefreshCw, TrendingUp, Clock, Users, Share2, Bookmark, Trash2, AlertCircle } from 'lucide-react';
+import { Sparkles, Image, Smile, Calendar, MapPin, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
@@ -96,7 +96,6 @@ export default function Feed() {
   const [hasMore, setHasMore] = useState(true);
   const [newPostsAvailable, setNewPostsAvailable] = useState(0);
   const [feedFilter, setFeedFilter] = useState<FeedFilter>('recent');
-  const [userInteractions, setUserInteractions] = useState<Map<string, { liked: boolean; reposted: boolean; bookmarked: boolean }>>(new Map());
   const [interactingPosts, setInteractingPosts] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -406,45 +405,40 @@ export default function Feed() {
     if (!user || interactingPosts.has(postId)) return;
 
     const post = posts.find(p => p.id === postId);
-    if (!post) return;
-
-    const wasReposted = post.isReposted || false;
-    const newRepostCount = wasReposted ? post.shares_count - 1 : post.shares_count + 1;
+    if (!post || post.isReposted) return;
 
     // Optimistic update
     setInteractingPosts(prev => new Set(prev).add(postId));
     setPosts(prevPosts => prevPosts.map(p => 
       p.id === postId 
-        ? { ...p, isReposted: !wasReposted, shares_count: newRepostCount }
+        ? { ...p, isReposted: true, shares_count: p.shares_count + 1 }
         : p
     ));
 
     try {
-      if (wasReposted) {
-        // Unrepost: Note - API may not support unrepost, treat as success
-        console.log('Unrepost not supported by API yet');
-      } else {
-        // Repost
-        await apiSharePost(postId);
+      await apiSharePost(postId);
 
-        // Send notification to post author
-        if (post.author_id !== user.id) {
-          createNotification(
-            post.author_id,
-            'share',
-            'Repost!',
-            'reposted your content',
-            postId,
-            'post'
-          );
-        }
+      if (post.author_id !== user.id) {
+        createNotification(
+          post.author_id,
+          'share',
+          'Repost!',
+          'reposted your content',
+          postId,
+          'post'
+        );
       }
+
+      toast({
+        title: 'Reposted',
+        description: 'This post is now shared to your network.',
+      });
     } catch (error) {
       console.error('Error toggling repost:', error);
       // Revert optimistic update on error
       setPosts(prevPosts => prevPosts.map(p => 
         p.id === postId 
-          ? { ...p, isReposted: wasReposted, shares_count: post.shares_count }
+          ? { ...p, isReposted: false, shares_count: post.shares_count }
           : p
       ));
       toast({
@@ -521,20 +515,48 @@ export default function Feed() {
           text: shareText,
           url: shareUrl,
         });
+        toast({
+          title: 'Shared',
+          description: 'Post shared successfully.',
+        });
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           console.error('Error sharing:', error);
+          toast({
+            title: 'Error',
+            description: 'Unable to share this post right now.',
+            variant: 'destructive',
+          });
         }
       }
     } else {
       // Fallback: copy to clipboard
-      await navigator.clipboard.writeText(shareUrl);
-      toast({
-        title: 'Link copied!',
-        description: 'Post link copied to clipboard',
-      });
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: 'Link copied!',
+          description: 'Post link copied to clipboard',
+        });
+      } catch (error) {
+        console.error('Error copying share link:', error);
+        toast({
+          title: 'Error',
+          description: 'Unable to copy the post link.',
+          variant: 'destructive',
+        });
+      }
     }
   };
+
+  const handleCommentAdded = useCallback((postId: string, countDelta = 1) => {
+    setPosts(prevPosts =>
+      prevPosts.map(post =>
+        post.id === postId
+          ? { ...post, comments_count: post.comments_count + countDelta }
+          : post
+      )
+    );
+  }, []);
 
   const handleDeletePost = async (postId: string) => {
     if (!user) return;
@@ -840,6 +862,7 @@ export default function Feed() {
                 isBookmarked={post.isBookmarked}
                 onLike={handleLike}
                 onRepost={handleRepost}
+                onCommentAdded={handleCommentAdded}
                 onBookmark={handleBookmark}
                 onShare={handleShare}
               />

@@ -45,6 +45,7 @@ interface TwitterStylePostProps {
   onLike?: (id: string) => void;
   onRepost?: (id: string) => void;
   onComment?: (id: string) => void;
+  onCommentAdded?: (id: string, countDelta?: number) => void;
   onBookmark?: (id: string) => void;
   onShare?: (id: string) => void;
 }
@@ -78,6 +79,7 @@ export function TwitterStylePost({
   onLike,
   onRepost,
   onComment,
+  onCommentAdded,
   onBookmark,
   onShare,
 }: TwitterStylePostProps) {
@@ -110,6 +112,10 @@ export function TwitterStylePost({
     setRepostCount(reposts);
   }, [reposts]);
 
+  useEffect(() => {
+    setCommentCount(comments);
+  }, [comments]);
+
   const handleLike = () => {
     setIsLiked(!isLiked);
     setLikeCount(prev => isLiked ? prev - 1 : prev + 1);
@@ -117,8 +123,9 @@ export function TwitterStylePost({
   };
 
   const handleRepost = () => {
+    if (isReposted) return;
     setIsReposted(!isReposted);
-    setRepostCount(prev => isReposted ? prev - 1 : prev + 1);
+    setRepostCount(prev => prev + 1);
     onRepost?.(id);
   };
 
@@ -274,7 +281,10 @@ export function TwitterStylePost({
             <div className="mt-3 border-t border-border pt-3">
               <CommentsSection 
                 postId={id} 
-                onCommentAdded={() => setCommentCount(prev => prev + 1)}
+                onCommentAdded={(countDelta = 1) => {
+                  setCommentCount(prev => prev + countDelta);
+                  onCommentAdded?.(id, countDelta);
+                }}
               />
             </div>
           )}

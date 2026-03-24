@@ -15,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CommentsSection } from './CommentsSection';
@@ -47,8 +48,10 @@ interface TwitterStylePostProps {
   onComment?: (id: string) => void;
   onCommentAdded?: (id: string, countDelta?: number) => void;
   onBookmark?: (id: string) => void;
-  onShare?: (id: string) => void;
+  onShare?: (id: string, target?: ShareTarget) => void;
 }
+
+export type ShareTarget = 'whatsapp' | 'x' | 'facebook' | 'linkedin' | 'telegram' | 'copy' | 'native';
 
 function formatTimeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -265,14 +268,28 @@ export function TwitterStylePost({
             )}
 
             {onShare && (
-              <button 
-                onClick={() => onShare(id)}
-                className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group"
-              >
-                <div className="p-2 rounded-full group-hover:bg-blue-400/10">
-                  <Share className="w-4 h-4" />
-                </div>
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors group"
+                    aria-label="Share post"
+                  >
+                    <div className="p-2 rounded-full group-hover:bg-blue-400/10">
+                      <Share className="w-4 h-4" />
+                    </div>
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => onShare(id, 'whatsapp')}>Share to WhatsApp</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onShare(id, 'x')}>Share to X</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onShare(id, 'facebook')}>Share to Facebook</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onShare(id, 'linkedin')}>Share to LinkedIn</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onShare(id, 'telegram')}>Share to Telegram</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onShare(id, 'copy')}>Copy link</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onShare(id, 'native')}>More options</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
           </div>
 

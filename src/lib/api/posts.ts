@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete } from '../apiClient';
+import { apiDelete, apiGet, apiPost } from '../apiClient';
 import { ApiError } from '../apiClient';
 
 export type Post = {
@@ -13,16 +13,13 @@ export type Post = {
   httn_earned: number;
   created_at: string;
   updated_at: string;
-  // Per-user interaction state returned by authenticated API
   is_liked?: boolean;
   is_reposted?: boolean;
   is_bookmarked?: boolean;
-  // Flattened author fields (added by backend for convenience)
   username?: string;
   display_name?: string;
   avatar_url?: string | null;
   is_verified?: boolean;
-  // Nested author object (legacy/fallback)
   author?: {
     id: string;
     username: string;
@@ -88,16 +85,57 @@ export const deletePost = async (postId: string) => {
 };
 
 export const likePost = async (postId: string) => {
-  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
+  try {
+    return await apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
+  } catch (error) {
+    const fallback = getLegacyInteractionSuccess(error, ['already liked', 'liked']);
+    if (fallback) {
+      return { success: true, liked: true, likes_count: fallback.likes_count ?? 0 };
+    }
+    throw error;
+  }
 };
 
-/** Unlike a post — uses the /unlike/ action endpoint (POST). */
 export const unlikePost = async (postId: string) => {
-  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/unlike/`);
+  try {
+    return await apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/unlike/`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return apiDelete<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
+    }
+
+    const fallback = getLegacyInteractionSuccess(error, ['not liked', 'unliked']);
+    if (fallback) {
+      return { success: true, liked: false, likes_count: fallback.likes_count ?? 0 };
+    }
+    throw error;
+  }
 };
 
 export const sharePost = async (postId: string) => {
-  return apiPost<{ success: boolean; reposted: boolean; shares_count: number }>(`/posts/${postId}/share/`);
+  try {
+    return await apiPost<{ success: boolean; reposted: boolean; shares_count: number }>(`/posts/${postId}/share/`);
+  } catch (error) {
+    const legacySuccess = getLegacyInteractionSuccess(error, ['already reposted', 'reposted']);
+    if (legacySuccess) {
+      return {
+        success: true,
+        reposted: true,
+        shares_count: legacySuccess.shares_count ?? legacySuccess.reposts_count ?? 0,
+      };
+    }
+
+    if (error instanceof ApiError && error.status === 404) {
+      const repostResponse = await apiPost<{ status?: string; shares_count?: number; reposts_count?: number }>(`/posts/${postId}/repost/`);
+      return {
+        success: true,
+        reposted: true,
+        shares_count: repostResponse.shares_count ?? repostResponse.reposts_count ?? 0,
+      };
+    }
+
+    throw error;
+  }
 };
 
 export const bookmarkPost = async (postId: string) => {
@@ -125,6 +163,7 @@ function normalisePosts(raw: unknown, limit: number): PostsResponse {
   if (Array.isArray(raw)) {
     return { data: raw as Post[], pagination: { page: 1, limit, total: (raw as Post[]).length, total_pages: 1 } };
   }
+
   const r = raw as any;
   const list: Post[] = r.data ?? r.results ?? [];
   const total = r.total ?? r.count ?? list.length;
@@ -137,4 +176,17 @@ function normalisePosts(raw: unknown, limit: number): PostsResponse {
       total_pages: r.pagination?.total_pages ?? r.total_pages ?? Math.ceil(total / limit),
     },
   };
+}
+
+function getLegacyInteractionSuccess(
+  error: unknown,
+  acceptedStatuses: string[],
+): Record<string, any> | null {
+  if (!(error instanceof ApiError) || error.status !== 400 || !error.details || typeof error.details !== 'object') {
+    return null;
+  }
+
+  const payload = error.details as Record<string, any>;
+  const status = typeof payload.status === 'string' ? payload.status.toLowerCase() : '';
+  return acceptedStatuses.includes(status) ? payload : null;
 }

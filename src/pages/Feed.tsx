@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
+import type { ShareTarget } from '@/components/herald/TwitterStylePost';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 import { TasksPanel } from '@/components/herald/TasksPanel';
 import { CreatePostDialog } from '@/components/herald/CreatePostDialog';
@@ -521,12 +522,46 @@ export default function Feed() {
     }
   };
 
-  const handleShare = async (postId: string) => {
+  const handleShare = async (postId: string, target: ShareTarget = 'native') => {
     const post = posts.find(p => p.id === postId);
     if (!post) return;
 
     const shareUrl = `${window.location.origin}/post/${postId}`;
-    const shareText = `${post.author.display_name}: ${post.content.substring(0, 100)}...`;
+    const snippet = post.content.length > 100 ? `${post.content.substring(0, 100)}...` : post.content;
+    const shareText = `${post.author.display_name}: ${snippet}`;
+    const encodedUrl = encodeURIComponent(shareUrl);
+    const encodedText = encodeURIComponent(shareText);
+
+    const socialUrls: Record<Exclude<ShareTarget, 'copy' | 'native'>, string> = {
+      whatsapp: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
+      x: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+      telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`,
+    };
+
+    if (target === 'copy') {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: 'Link copied',
+          description: 'Post link copied to clipboard.',
+        });
+      } catch (error) {
+        console.error('Error copying share link:', error);
+        toast({
+          title: 'Error',
+          description: 'Unable to copy the post link.',
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    if (target !== 'native') {
+      window.open(socialUrls[target], '_blank', 'noopener,noreferrer');
+      return;
+    }
 
     if (navigator.share) {
       try {
@@ -550,12 +585,11 @@ export default function Feed() {
         }
       }
     } else {
-      // Fallback: copy to clipboard
       try {
         await navigator.clipboard.writeText(shareUrl);
         toast({
-          title: 'Link copied!',
-          description: 'Post link copied to clipboard',
+          title: 'Link copied',
+          description: 'Post link copied to clipboard.',
         });
       } catch (error) {
         console.error('Error copying share link:', error);

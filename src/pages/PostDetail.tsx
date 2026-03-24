@@ -31,6 +31,7 @@ interface Post {
   likes_count: number;
   comments_count: number;
   shares_count: number;
+  bookmarks_count: number;
   httn_earned: number;
   created_at: string;
   author: Profile;
@@ -60,6 +61,7 @@ function mapPost(raw: any): Post {
     author_id: typeof raw.author_id === 'string' ? raw.author_id : raw.author_id?.id || raw.author?.id || '',
     media_url: raw.media_url || null,
     media_type: raw.media_type || null,
+    bookmarks_count: raw.bookmarks_count ?? 0,
     isLiked: raw.is_liked ?? false,
     isReposted: raw.is_reposted ?? false,
     isBookmarked: raw.is_bookmarked ?? false,
@@ -115,6 +117,35 @@ export default function PostDetail() {
   useEffect(() => {
     fetchPost();
   }, [fetchPost]);
+
+  useEffect(() => {
+    if (!postId) return;
+
+    const intervalId = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible') return;
+
+      try {
+        const response = await getPost(postId);
+        const latestPost = mapPost(response);
+        setPost((prev) => prev ? {
+          ...prev,
+          likes_count: latestPost.likes_count,
+          comments_count: latestPost.comments_count,
+          shares_count: latestPost.shares_count,
+          bookmarks_count: latestPost.bookmarks_count,
+          isLiked: latestPost.isLiked,
+          isReposted: latestPost.isReposted,
+          isBookmarked: latestPost.isBookmarked,
+        } : prev);
+      } catch (error) {
+        console.error('Error refreshing post detail interactions:', error);
+      }
+    }, 20_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [postId]);
 
   const requireAuth = () => {
     if (user) return true;
@@ -192,7 +223,11 @@ export default function PostDetail() {
     const wasBookmarked = post.isBookmarked ?? false;
 
     setInteracting(prev => new Set(prev).add(id));
-    setPost(prev => prev ? { ...prev, isBookmarked: !wasBookmarked } : prev);
+    setPost(prev => prev ? {
+      ...prev,
+      isBookmarked: !wasBookmarked,
+      bookmarks_count: wasBookmarked ? Math.max(0, prev.bookmarks_count - 1) : prev.bookmarks_count + 1,
+    } : prev);
 
     try {
       if (wasBookmarked) {
@@ -204,7 +239,7 @@ export default function PostDetail() {
       }
     } catch (err) {
       console.error('Error bookmarking post detail:', err);
-      setPost(prev => prev ? { ...prev, isBookmarked: wasBookmarked } : prev);
+      setPost(prev => prev ? { ...prev, isBookmarked: wasBookmarked, bookmarks_count: post.bookmarks_count } : prev);
       toast({
         title: 'Error',
         description: getErrorDescription(err, 'Failed to bookmark. Please try again.'),
@@ -376,6 +411,7 @@ export default function PostDetail() {
         likes={post.likes_count}
         comments={post.comments_count}
         reposts={post.shares_count}
+        bookmarks={post.bookmarks_count}
         httnEarned={post.httn_earned}
         createdAt={new Date(post.created_at)}
         isLiked={post.isLiked}

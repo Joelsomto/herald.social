@@ -22,6 +22,7 @@ interface Post {
   likes_count: number;
   comments_count: number;
   shares_count: number;
+  bookmarks_count: number;
   httn_earned: number;
   created_at: string;
   author_id: string;
@@ -49,6 +50,7 @@ function mapPost(p: any): Post {
     ...p,
     author: { username, display_name, avatar_url, is_verified, is_creator },
     media_url: p.media_url || null,
+    bookmarks_count: p.bookmarks_count ?? 0,
     isLiked: p.is_liked ?? false,
     isReposted: p.is_reposted ?? false,
     isBookmarked: true, // all posts on this page are bookmarked
@@ -180,6 +182,7 @@ export default function Bookmarks() {
               likes={post.likes_count}
               comments={post.comments_count}
               reposts={post.shares_count}
+              bookmarks={post.bookmarks_count}
               httnEarned={post.httn_earned}
               createdAt={new Date(post.created_at)}
               isLiked={post.isLiked}

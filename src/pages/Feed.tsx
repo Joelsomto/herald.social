@@ -66,6 +66,7 @@ interface Post {
   likes_count: number;
   comments_count: number;
   shares_count: number;
+  bookmarks_count: number;
   httn_earned: number;
   created_at: string;
   author: Profile;
@@ -158,11 +159,25 @@ export default function Feed() {
         is_creator,
       },
       media_url: p.media_url || null,
+      bookmarks_count: p.bookmarks_count ?? 0,
       isLiked: p.is_liked ?? false,
       isReposted: p.is_reposted ?? false,
       isBookmarked: p.is_bookmarked ?? false,
     };
   }, []);
+
+  const mergePostState = useCallback((currentPost: Post, incomingPost: Post): Post => ({
+    ...currentPost,
+    ...incomingPost,
+    author: incomingPost.author || currentPost.author,
+    likes_count: incomingPost.likes_count,
+    comments_count: incomingPost.comments_count,
+    shares_count: incomingPost.shares_count,
+    bookmarks_count: incomingPost.bookmarks_count,
+    isLiked: incomingPost.isLiked,
+    isReposted: incomingPost.isReposted,
+    isBookmarked: incomingPost.isBookmarked,
+  }), []);
 
   const updateFeedCache = useCallback((nextPosts: Post[], nextHasMore: boolean, filter: FeedFilter = feedFilter) => {
     if (!user) return;
@@ -229,16 +244,26 @@ export default function Feed() {
 
     const checkForNewPosts = async () => {
       if (document.visibilityState !== 'visible') return;
-      if (feedFilterRef.current !== 'recent') return;
       if (isLoading || isLoadingMore) return;
 
       try {
-        const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
-        const latestPosts = Array.isArray(response)
-          ? response
-          : (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data))
-            ? response.data
-            : [];
+        const activeFilter = feedFilterRef.current;
+        let latestPosts: any[] = [];
+
+        if (activeFilter === 'trending') {
+          const response = await getTrendingPosts(20);
+          latestPosts = Array.isArray(response?.data) ? response.data : [];
+        } else if (activeFilter === 'following') {
+          const response = await getFollowingPosts({ page: 1, limit: 20 });
+          latestPosts = Array.isArray(response?.data) ? response.data : [];
+        } else {
+          const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+          latestPosts = Array.isArray(response)
+            ? response
+            : (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data))
+              ? response.data
+              : [];
+        }
 
         const mappedLatestPosts = latestPosts.map(mapPost);
         const currentPosts = postsRef.current;
@@ -247,6 +272,35 @@ export default function Feed() {
 
         const currentIds = new Set(currentPosts.map((post) => post.id));
         const freshPosts = mappedLatestPosts.filter((post) => !currentIds.has(post.id));
+        const latestById = new Map(mappedLatestPosts.map((post) => [post.id, post]));
+
+        setPosts((prevPosts) => {
+          let changed = false;
+          const mergedPosts = prevPosts.map((post) => {
+            const latestPost = latestById.get(post.id);
+            if (!latestPost) return post;
+
+            const nextPost = mergePostState(post, latestPost);
+            if (
+              nextPost.likes_count !== post.likes_count ||
+              nextPost.comments_count !== post.comments_count ||
+              nextPost.shares_count !== post.shares_count ||
+              nextPost.bookmarks_count !== post.bookmarks_count ||
+              nextPost.isLiked !== post.isLiked ||
+              nextPost.isReposted !== post.isReposted ||
+              nextPost.isBookmarked !== post.isBookmarked
+            ) {
+              changed = true;
+            }
+            return nextPost;
+          });
+
+          if (!changed) return prevPosts;
+          updateFeedCache(mergedPosts, hasMore, activeFilter);
+          return mergedPosts;
+        });
+
+        if (activeFilter !== 'recent') return;
         if (freshPosts.length === 0) return;
 
         const userNearTop = window.scrollY < 180;
@@ -257,8 +311,11 @@ export default function Feed() {
             const postsToAdd = mappedLatestPosts.filter((post) => !prevIds.has(post.id));
             if (postsToAdd.length === 0) return prevPosts;
 
-            const nextPosts = [...postsToAdd, ...prevPosts];
-            updateFeedCache(nextPosts, hasMore, 'recent');
+            const nextPosts = [...postsToAdd, ...prevPosts.map((post) => {
+              const latestPost = latestById.get(post.id);
+              return latestPost ? mergePostState(post, latestPost) : post;
+            })];
+            updateFeedCache(nextPosts, hasMore, activeFilter);
             return nextPosts;
           });
           setNewPostsAvailable(0);
@@ -276,7 +333,7 @@ export default function Feed() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [user, isLoading, isLoadingMore, hasMore, mapPost, updateFeedCache]);
+  }, [user, isLoading, isLoadingMore, hasMore, mapPost, mergePostState, updateFeedCache]);
 
   const loadMorePosts = async () => {
     if (isLoadingMore || !hasMore || posts.length === 0) return;
@@ -548,7 +605,11 @@ export default function Feed() {
     setPosts(prevPosts => {
       const nextPosts = prevPosts.map(p => 
         p.id === postId 
-          ? { ...p, isBookmarked: !wasBookmarked }
+          ? {
+              ...p,
+              isBookmarked: !wasBookmarked,
+              bookmarks_count: wasBookmarked ? Math.max(0, p.bookmarks_count - 1) : p.bookmarks_count + 1,
+            }
           : p
       );
       updateFeedCache(nextPosts, hasMore);
@@ -569,7 +630,7 @@ export default function Feed() {
       setPosts(prevPosts => {
         const nextPosts = prevPosts.map(p => 
           p.id === postId 
-            ? { ...p, isBookmarked: wasBookmarked }
+            ? { ...p, isBookmarked: wasBookmarked, bookmarks_count: post.bookmarks_count }
             : p
         );
         updateFeedCache(nextPosts, hasMore);
@@ -985,6 +1046,7 @@ export default function Feed() {
                 likes={post.likes_count}
                 comments={post.comments_count}
                 reposts={post.shares_count}
+                bookmarks={post.bookmarks_count}
                 httnEarned={post.httn_earned}
                 createdAt={new Date(post.created_at)}
                 isLiked={post.isLiked}

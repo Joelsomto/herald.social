@@ -45,6 +45,7 @@ interface Post {
   likes_count: number;
   comments_count: number;
   shares_count: number;
+  bookmarks_count?: number;
   httn_earned: number;
   created_at: string;
 }
@@ -338,6 +339,7 @@ export default function UserProfile() {
                 likes={post.likes_count}
                 comments={post.comments_count}
                 reposts={post.shares_count}
+                bookmarks={post.bookmarks_count ?? 0}
                 httnEarned={post.httn_earned}
                 createdAt={new Date(post.created_at)}
               />

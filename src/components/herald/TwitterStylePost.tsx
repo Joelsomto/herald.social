@@ -3,12 +3,19 @@ import { Link } from 'react-router-dom';
 import {
   Heart,
   MessageCircle,
+  MessageCircleMore,
   Repeat2,
   Share,
+  Share2,
   MoreHorizontal,
   BadgeCheck,
   Sparkles,
   Bookmark,
+  Facebook,
+  Linkedin,
+  Link2,
+  Send,
+  Twitter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -44,6 +51,7 @@ interface TwitterStylePostProps {
   likes: number;
   comments: number;
   reposts: number;
+  bookmarks?: number;
   httnEarned: number;
   createdAt: Date;
   isLiked?: boolean;
@@ -80,6 +88,7 @@ export function TwitterStylePost({
   likes,
   comments,
   reposts,
+  bookmarks = 0,
   httnEarned,
   createdAt,
   isLiked: initialLiked = false,
@@ -99,6 +108,7 @@ export function TwitterStylePost({
   const [repostCount, setRepostCount] = useState(reposts);
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(comments);
+  const [bookmarkCount, setBookmarkCount] = useState(bookmarks);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   // Sync with prop changes
@@ -126,6 +136,10 @@ export function TwitterStylePost({
     setCommentCount(comments);
   }, [comments]);
 
+  useEffect(() => {
+    setBookmarkCount(bookmarks);
+  }, [bookmarks]);
+
   const handleLike = () => {
     if (!onLike) return;
     setIsLiked(!isLiked);
@@ -148,6 +162,13 @@ export function TwitterStylePost({
   const handleShareSelect = (target: ShareTarget) => {
     onShare?.(id, target);
     setShareDialogOpen(false);
+  };
+
+  const handleBookmark = () => {
+    if (!onBookmark) return;
+    setIsBookmarked(!isBookmarked);
+    setBookmarkCount(prev => isBookmarked ? Math.max(0, prev - 1) : prev + 1);
+    onBookmark(id);
   };
 
   return (
@@ -269,7 +290,7 @@ export function TwitterStylePost({
 
             {onBookmark && (
               <button 
-                onClick={() => onBookmark(id)}
+                onClick={handleBookmark}
                 className={`flex items-center gap-1 transition-colors group ${
                   isBookmarked ? 'text-primary' : 'text-muted-foreground hover:text-primary'
                 }`}
@@ -277,6 +298,7 @@ export function TwitterStylePost({
                 <div className="p-2 rounded-full group-hover:bg-primary/10">
                   <Bookmark className={`w-4 h-4 ${isBookmarked ? 'fill-current' : ''}`} />
                 </div>
+                <span className="text-sm">{bookmarkCount > 0 ? bookmarkCount : ''}</span>
               </button>
             )}
 
@@ -299,13 +321,34 @@ export function TwitterStylePost({
                       <DialogDescription>Choose where you want to share this post.</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-2">
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('whatsapp')}>Share to WhatsApp</Button>
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('x')}>Share to X</Button>
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('facebook')}>Share to Facebook</Button>
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('linkedin')}>Share to LinkedIn</Button>
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('telegram')}>Share to Telegram</Button>
-                      <Button variant="outline" className="justify-start" onClick={() => handleShareSelect('copy')}>Copy link</Button>
-                      <Button variant="gold" className="justify-start" onClick={() => handleShareSelect('native')}>More options</Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('whatsapp')}>
+                        <MessageCircleMore className="h-4 w-4 text-green-600" />
+                        Share to WhatsApp
+                      </Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('x')}>
+                        <Twitter className="h-4 w-4 text-foreground" />
+                        Share to X
+                      </Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('facebook')}>
+                        <Facebook className="h-4 w-4 text-blue-600" />
+                        Share to Facebook
+                      </Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('linkedin')}>
+                        <Linkedin className="h-4 w-4 text-sky-600" />
+                        Share to LinkedIn
+                      </Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('telegram')}>
+                        <Send className="h-4 w-4 text-cyan-600" />
+                        Share to Telegram
+                      </Button>
+                      <Button variant="outline" className="justify-start gap-3" onClick={() => handleShareSelect('copy')}>
+                        <Link2 className="h-4 w-4 text-foreground" />
+                        Copy link
+                      </Button>
+                      <Button variant="gold" className="justify-start gap-3" onClick={() => handleShareSelect('native')}>
+                        <Share2 className="h-4 w-4 text-primary" />
+                        More options
+                      </Button>
                     </div>
                   </DialogContent>
                 </Dialog>

@@ -18,7 +18,7 @@ import { Sparkles, Image, Smile, Calendar, MapPin, BadgeCheck, Loader2, RefreshC
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, createPost } from '@/lib/api/posts';
+import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, unbookmarkPost as apiUnbookmarkPost, createPost } from '@/lib/api/posts';
 import { getUserTasks, claimTaskReward } from '@/lib/api/tasks';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -191,7 +191,7 @@ export default function Feed() {
         const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
         const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
         const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-        
+
         return {
           ...p,
           author: {
@@ -202,7 +202,10 @@ export default function Feed() {
             is_verified,
             is_creator,
           },
-          media_url: p.media_url || null
+          media_url: p.media_url || null,
+          isLiked: p.is_liked ?? false,
+          isReposted: p.is_reposted ?? false,
+          isBookmarked: p.is_bookmarked ?? false,
         };
       })]);
     } catch (error) {
@@ -306,7 +309,11 @@ export default function Feed() {
               is_verified,
               is_creator,
             },
-            media_url: p.media_url || null
+            media_url: p.media_url || null,
+            // Map snake_case API fields to camelCase component props
+            isLiked: p.is_liked ?? false,
+            isReposted: p.is_reposted ?? false,
+            isBookmarked: p.is_bookmarked ?? false,
           };
         }));
       } else {
@@ -472,19 +479,11 @@ export default function Feed() {
 
     try {
       if (wasBookmarked) {
-        // Un-bookmark: Note - API may not support removing bookmarks yet
-        console.log('Un-bookmark not supported by API yet');
-        toast({
-          title: 'Unbookmarked',
-          description: 'Post removed from bookmarks',
-        });
+        await apiUnbookmarkPost(postId);
+        toast({ title: 'Removed', description: 'Post removed from bookmarks' });
       } else {
         await apiBookmarkPost(postId);
-
-        toast({
-          title: 'Bookmarked',
-          description: 'Post saved to your bookmarks',
-        });
+        toast({ title: 'Saved', description: 'Post added to your bookmarks' });
       }
     } catch (error) {
       console.error('Error toggling bookmark:', error);
@@ -716,9 +715,13 @@ export default function Feed() {
       {/* Compose Box */}
       <div className="border-b border-border p-4">
         <div className="flex gap-3">
-          <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0">
-            {profile?.display_name?.[0] || '?'}
-          </div>
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt={profile.display_name || ''} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0">
+              {(profile?.display_name || profile?.username || '?')[0].toUpperCase()}
+            </div>
+          )}
           <div className="flex-1">
             <Textarea
               placeholder="What's happening?"

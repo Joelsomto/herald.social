@@ -33,7 +33,7 @@ export const getPostComments = async (postId: string, params?: { page?: number; 
   if (params?.limit) queryParams.append('limit', params.limit.toString());
 
   const query = queryParams.toString();
-  return apiGet<CommentsResponse>(`/posts/${postId}/comments${query ? `?${query}` : ''}`);
+  return apiGet<CommentsResponse>(`/posts/${postId}/comments/${query ? `?${query}` : ''}`);
 };
 
 export const createComment = async (postId: string, content: string, parentCommentId?: string) => {

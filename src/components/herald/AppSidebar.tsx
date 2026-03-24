@@ -16,6 +16,7 @@ import {
   Radio,
   Newspaper,
   HandHeart,
+  Bookmark,
   Menu,
   X,
 } from 'lucide-react';
@@ -71,6 +72,7 @@ export function AppSidebar() {
     { icon: HandHeart, label: 'Herald Causes', path: '/causes' },
     { icon: Search, label: 'Explore', path: '/explore' },
     { icon: Bell, label: 'Notifications', path: '/notifications' },
+    { icon: Bookmark, label: 'Bookmarks', path: '/bookmarks' },
     { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: Wallet, label: 'Wallet', path: '/wallet' },
     { icon: Trophy, label: 'Leaderboard', path: '/leaderboard' },

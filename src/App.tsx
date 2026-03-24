@@ -32,6 +32,7 @@ import Live from "./pages/Live";
 import Communities from "./pages/Communities";
 import Causes from "./pages/Causes";
 import News from "./pages/News";
+import Bookmarks from "./pages/Bookmarks";
 import DbTest from "./pages/DbTest";
 
 const queryClient = new QueryClient();
@@ -184,6 +185,7 @@ const AppRoutes = () => {
       <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
       <Route path="/causes" element={<ProtectedRoute><Causes /></ProtectedRoute>} />
       <Route path="/news" element={<ProtectedRoute><News /></ProtectedRoute>} />
+      <Route path="/bookmarks" element={<ProtectedRoute><Bookmarks /></ProtectedRoute>} />
       <Route path="/db-test" element={<DbTest />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

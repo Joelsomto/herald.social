@@ -30,23 +30,23 @@ interface CommentsSectionProps {
   onCommentAdded?: (countDelta?: number) => void;
 }
 
-/** Small reusable avatar: shows image if url present, else first letter of name. */
+/** Small reusable avatar: shows image if url present, else a generated UI avatar. */
 function Avatar({ url, name, size = 8 }: { url?: string | null; name?: string | null; size?: number }) {
   const sizeClass = `w-${size} h-${size}`;
-  const initial = (name || '?')[0].toUpperCase();
-  if (url) {
-    return (
-      <img
-        src={url}
-        alt={name || ''}
-        className={`${sizeClass} rounded-full object-cover flex-shrink-0`}
-      />
-    );
-  }
+  const displayName = name?.trim() || 'User';
+  const src = url || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=E0E7FF&color=3730A3&bold=true&size=64`;
   return (
-    <div className={`${sizeClass} rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0 text-sm`}>
-      {initial}
-    </div>
+    <img
+      src={src}
+      alt={displayName}
+      className={`${sizeClass} rounded-full object-cover flex-shrink-0`}
+      onError={(e) => {
+        // If ui-avatars also fails, fall back to a solid coloured initial
+        const t = e.currentTarget;
+        t.onerror = null;
+        t.src = `https://ui-avatars.com/api/?name=U&background=E0E7FF&color=3730A3&bold=true&size=64`;
+      }}
+    />
   );
 }
 
@@ -164,7 +164,10 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       {/* Comment input */}
       {user && (
         <div className="flex gap-3">
-          <Avatar url={(user as any).avatar_url} name={(user as any).display_name || user.username} />
+          <Avatar
+            url={(user as any).avatar_url ?? null}
+            name={(user as any).display_name || (user as any).username || (user as any).email?.split('@')[0] || 'User'}
+          />
           <div className="flex-1 flex gap-2">
             <Textarea
               placeholder="Post your reply..."

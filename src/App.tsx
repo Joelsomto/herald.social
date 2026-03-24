@@ -54,29 +54,36 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
 
   useEffect(() => {
-    // Show splash screen for 2 seconds minimum
+    // Returning users (onboarding already cached) get a shorter splash
+    const isReturning = user?.id && localStorage.getItem(`herald_onboarded_${user.id}`) === '1';
     const timer = setTimeout(() => {
       setShowSplash(false);
-    }, 2000);
+    }, isReturning ? 800 : 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     const checkOnboarding = async () => {
       if (user && !loading) {
+        // Fast path: returning users skip API calls entirely.
+        // We store a flag after their first successful onboarding check.
+        const cacheKey = `herald_onboarded_${user.id}`;
+        if (localStorage.getItem(cacheKey) === '1') {
+          setCheckingOnboarding(false);
+          return;
+        }
+
         try {
           let completed = false;
-          
-          // Safety timeout - if checks take too long, assume completed
+
+          // Safety timeout — if Render.com is cold-starting, don't block forever
           const timeoutId = setTimeout(() => {
             console.warn('Onboarding check timeout - marking as completed');
+            localStorage.setItem(cacheKey, '1');
             setShowOnboarding(false);
             setCheckingOnboarding(false);
-          }, 15000); // Increased to 15s for Render.com cold starts
-          
-          // Skip user_interests check - table may not exist yet
-          // Assume completed if they have profile + wallet
-          
+          }, 10000);
+
           // Returning user: they have a profile, wallet, or posts
           const results = await Promise.allSettled([
             getCurrentUser(),
@@ -95,9 +102,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
           if (isReturningUser) {
             completed = true;
+            // Cache so subsequent page loads skip these API calls
+            localStorage.setItem(cacheKey, '1');
           }
-          
-          console.log('Onboarding check completed:', { completed, hasWallet, hasPosts, profileAge: profileAgeMs });
+
           if (!completed) setShowOnboarding(true);
         } catch (error) {
           console.error('Error checking onboarding:', error);

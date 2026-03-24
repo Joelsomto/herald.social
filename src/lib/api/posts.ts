@@ -1,5 +1,4 @@
 import { apiDelete, apiGet, apiPost } from '../apiClient';
-import { ApiError } from '../apiClient';
 
 export type Post = {
   id: string;
@@ -89,57 +88,15 @@ export const deletePost = async (postId: string) => {
 };
 
 export const likePost = async (postId: string) => {
-  try {
-    return await apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
-  } catch (error) {
-    const fallback = getLegacyInteractionSuccess(error, ['already liked', 'liked']);
-    if (fallback) {
-      return { success: true, liked: true, likes_count: fallback.likes_count ?? 0 };
-    }
-    throw error;
-  }
+  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
 };
 
 export const unlikePost = async (postId: string) => {
-  try {
-    return await apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/unlike/`);
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 404) {
-      return apiDelete<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
-    }
-
-    const fallback = getLegacyInteractionSuccess(error, ['not liked', 'unliked']);
-    if (fallback) {
-      return { success: true, liked: false, likes_count: fallback.likes_count ?? 0 };
-    }
-    throw error;
-  }
+  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/unlike/`);
 };
 
 export const sharePost = async (postId: string) => {
-  try {
-    return await apiPost<{ success: boolean; reposted: boolean; shares_count: number }>(`/posts/${postId}/share/`);
-  } catch (error) {
-    const legacySuccess = getLegacyInteractionSuccess(error, ['already reposted', 'reposted']);
-    if (legacySuccess) {
-      return {
-        success: true,
-        reposted: true,
-        shares_count: legacySuccess.shares_count ?? legacySuccess.reposts_count ?? 0,
-      };
-    }
-
-    if (error instanceof ApiError && error.status === 404) {
-      const repostResponse = await apiPost<{ status?: string; shares_count?: number; reposts_count?: number }>(`/posts/${postId}/repost/`);
-      return {
-        success: true,
-        reposted: true,
-        shares_count: repostResponse.shares_count ?? repostResponse.reposts_count ?? 0,
-      };
-    }
-
-    throw error;
-  }
+  return apiPost<{ success: boolean; reposted: boolean; shares_count: number }>(`/posts/${postId}/share/`);
 };
 
 export const bookmarkPost = async (postId: string) => {
@@ -180,17 +137,4 @@ function normalisePosts(raw: unknown, limit: number): PostsResponse {
       total_pages: r.pagination?.total_pages ?? r.total_pages ?? Math.ceil(total / limit),
     },
   };
-}
-
-function getLegacyInteractionSuccess(
-  error: unknown,
-  acceptedStatuses: string[],
-): Record<string, any> | null {
-  if (!(error instanceof ApiError) || error.status !== 400 || !error.details || typeof error.details !== 'object') {
-    return null;
-  }
-
-  const payload = error.details as Record<string, any>;
-  const status = typeof payload.status === 'string' ? payload.status.toLowerCase() : '';
-  return acceptedStatuses.includes(status) ? payload : null;
 }

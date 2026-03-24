@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch, apiDelete } from '../apiClient';
+import { apiGet, apiPost, apiDelete } from '../apiClient';
 
 export type Comment = {
   id: string;
@@ -39,8 +39,6 @@ export const getPostComments = async (postId: string, params?: { page?: number; 
 export const createComment = async (postId: string, content: string, parentCommentId?: string) => {
   return apiPost<Comment>(`/posts/${postId}/comments/`, { 
     body: { 
-      post: postId,
-      post_id: postId,
       content,
       ...(parentCommentId && { parent_comment_id: parentCommentId })
     } 

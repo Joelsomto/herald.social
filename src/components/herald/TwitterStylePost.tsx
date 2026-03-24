@@ -132,17 +132,11 @@ export function TwitterStylePost({
       <div className="flex gap-3">
         {/* Avatar */}
         <Link to={`/user/${author.username}`} className="flex-shrink-0">
-          {author.avatar ? (
-            <img
-              src={author.avatar}
-              alt={author.displayName}
-              className="w-10 h-10 rounded-full object-cover hover:opacity-80 transition-opacity"
-            />
-          ) : (
-            <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground hover:opacity-80 transition-opacity">
-              {author.displayName[0]}
-            </div>
-          )}
+          <img
+            src={author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(author.displayName || author.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`}
+            alt={author.displayName}
+            className="w-10 h-10 rounded-full object-cover hover:opacity-80 transition-opacity"
+          />
         </Link>
 
         {/* Content */}

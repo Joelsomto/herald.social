@@ -715,12 +715,15 @@ export default function Feed() {
       {/* Compose Box */}
       <div className="border-b border-border p-4">
         <div className="flex gap-3">
+          {/* Avatar with UIAvatar fallback */}
           {profile?.avatar_url ? (
             <img src={profile.avatar_url} alt={profile.display_name || ''} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0">
-              {(profile?.display_name || profile?.username || '?')[0].toUpperCase()}
-            </div>
+            <img
+              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.display_name || profile?.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`}
+              alt="User avatar"
+              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+            />
           )}
           <div className="flex-1">
             <Textarea
@@ -795,58 +798,76 @@ export default function Feed() {
       {/* Feed */}
       <div>
         {/* Posts from database */}
-        {posts.map((post, index) => (
-          <div key={post.id}>
-            <TwitterStylePost
-              id={post.id}
-              author={{
-                id: post.author_id,
-                displayName: post.author?.display_name || 'Unknown',
-                username: post.author?.username || 'unknown',
-                avatar: post.author?.avatar_url || null,
-                isVerified: post.author?.is_verified || false,
-                isGoldVerified: post.author?.is_verified && post.author?.is_creator,
-              }}
-              content={post.content}
-              mediaUrl={post.media_url || undefined}
-              mediaType={post.media_type as 'image' | 'video' | undefined}
-              likes={post.likes_count}
-              comments={post.comments_count}
-              reposts={post.shares_count}
-              httnEarned={post.httn_earned}
-              createdAt={new Date(post.created_at)}
-              isLiked={post.isLiked}
-              isReposted={post.isReposted}
-              isBookmarked={post.isBookmarked}
-              onLike={handleLike}
-              onRepost={handleRepost}
-              onBookmark={handleBookmark}
-              onShare={handleShare}
-            />
-            {/* Post actions menu for own posts */}
-            {user && post.author_id === user.id && (
-              <div className="px-4 pb-2 flex justify-end">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem 
-                      className="text-destructive"
-                      onClick={() => handleDeletePost(post.id)}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete Post
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+        {isLoading && posts.length === 0 ? (
+          // Loading skeleton for perceived speed
+          <div className="space-y-4 p-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex gap-3 animate-pulse">
+                <div className="w-10 h-10 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-1/3 bg-muted rounded" />
+                  <div className="h-3 w-2/3 bg-muted rounded" />
+                  <div className="h-3 w-1/2 bg-muted rounded" />
+                </div>
               </div>
-            )}
+            ))}
           </div>
-        ))}
+        ) : (
+          posts.map((post, index) => (
+            <div key={post.id}>
+              <TwitterStylePost
+                id={post.id}
+                author={{
+                  id: post.author_id,
+                  displayName: post.author?.display_name || 'Unknown',
+                  username: post.author?.username || 'unknown',
+                  avatar:
+                    post.author?.avatar_url ||
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author?.display_name || post.author?.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`,
+                  isVerified: post.author?.is_verified || false,
+                  isGoldVerified: post.author?.is_verified && post.author?.is_creator,
+                }}
+                content={post.content}
+                mediaUrl={post.media_url || undefined}
+                mediaType={post.media_type as 'image' | 'video' | undefined}
+                likes={post.likes_count}
+                comments={post.comments_count}
+                reposts={post.shares_count}
+                httnEarned={post.httn_earned}
+                createdAt={new Date(post.created_at)}
+                isLiked={post.isLiked}
+                isReposted={post.isReposted}
+                isBookmarked={post.isBookmarked}
+                onLike={handleLike}
+                onRepost={handleRepost}
+                onBookmark={handleBookmark}
+                onShare={handleShare}
+              />
+              {/* Post actions menu for own posts */}
+              {user && post.author_id === user.id && (
+                <div className="px-4 pb-2 flex justify-end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem 
+                        className="text-destructive"
+                        onClick={() => handleDeletePost(post.id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete Post
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </div>
+          ))
+        )}
 
         {/* No posts message */}
         {posts.length === 0 && (

@@ -4,8 +4,7 @@ import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import type { ShareTarget } from '@/components/herald/TwitterStylePost';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 import { TasksPanel } from '@/components/herald/TasksPanel';
-import { CreatePostDialog } from '@/components/herald/CreatePostDialog';
-import { SchedulePostDialog } from '@/components/herald/SchedulePostDialog';
+import { MediaUpload } from '@/components/herald/MediaUpload';
 import { FloatingMessageButton } from '@/components/herald/FloatingMessageButton';
 import { TrendingSection } from '@/components/herald/TrendingSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
@@ -118,9 +117,9 @@ export default function Feed() {
   const [tasks, setTasks] = useState<UserTask[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [topCreators, setTopCreators] = useState<Profile[]>([]);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [postContent, setPostContent] = useState('');
+  const [composerMediaType, setComposerMediaType] = useState<'image' | 'video' | 'reel' | null>(null);
+  const [composerMediaUrl, setComposerMediaUrl] = useState<string | null>(null);
   const [isPosting, setIsPosting] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -808,6 +807,8 @@ export default function Feed() {
     try {
       await createPost({
         content: trimmedContent,
+        media_type: composerMediaType || undefined,
+        media_url: composerMediaUrl || undefined,
       });
 
       toast({
@@ -816,6 +817,8 @@ export default function Feed() {
       });
 
       setPostContent('');
+      setComposerMediaType(null);
+      setComposerMediaUrl(null);
       
       // Refresh feed and user data
       if (user) {
@@ -860,6 +863,39 @@ export default function Feed() {
   const handlePullRefresh = async () => {
     await Promise.all([fetchPosts(feedFilter, false), fetchUserData(false), fetchTopCreators(false)]);
   };
+
+  const handleComposerMediaUploaded = (url: string, type: string) => {
+    setComposerMediaType(type as 'image' | 'video' | 'reel');
+    setComposerMediaUrl(url);
+  };
+
+  const handleComposerMediaRemoved = () => {
+    setComposerMediaUrl(null);
+    setComposerMediaType(null);
+  };
+
+  const insertEmoji = (emoji: string) => {
+    const textarea = composerRef.current;
+    if (!textarea) {
+      setPostContent((prev) => `${prev}${emoji}`);
+      return;
+    }
+
+    const start = textarea.selectionStart ?? postContent.length;
+    const end = textarea.selectionEnd ?? postContent.length;
+    const nextContent = `${postContent.slice(0, start)}${emoji}${postContent.slice(end)}`;
+    setPostContent(nextContent);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const nextPosition = start + emoji.length;
+      textarea.setSelectionRange(nextPosition, nextPosition);
+    });
+  };
+
+  const composerEmojiOptions = ['😀', '😂', '🔥', '100', '👏', '❤️', '🎉', '🚀'].map((value) =>
+    value === '100' ? '💯' : value
+  );
 
   const rightSidebar = (
     <RightSidebarWithAds>
@@ -976,18 +1012,72 @@ export default function Feed() {
                 <Sparkles className="h-4 w-4" />
                 <span>Share it with your community</span>
               </div>
+              {user && composerMediaType && (
+                <div className="mb-4">
+                  <MediaUpload
+                    userId={user.id}
+                    mediaType={composerMediaType}
+                    onMediaUploaded={handleComposerMediaUploaded}
+                    onMediaRemoved={handleComposerMediaRemoved}
+                    currentMediaUrl={composerMediaUrl || undefined}
+                  />
+                </div>
+              )}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10" onClick={() => setCreateDialogOpen(true)}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-primary hover:bg-primary/10"
+                    onClick={() => setComposerMediaType('image')}
+                  >
                     <Image className="w-5 h-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
-                    <Smile className="w-5 h-5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10" onClick={() => setScheduleDialogOpen(true)}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
+                        <Smile className="w-5 h-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56">
+                      <div className="grid grid-cols-4 gap-1 p-2">
+                        {composerEmojiOptions.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => insertEmoji(emoji)}
+                            className="rounded-lg p-2 text-xl transition-colors hover:bg-secondary"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-muted-foreground hover:bg-secondary"
+                    onClick={() =>
+                      toast({
+                        title: 'Scheduling next',
+                        description: 'Inline scheduling is the next composer feature to wire up.',
+                      })
+                    }
+                  >
                     <Calendar className="w-5 h-5" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 rounded-full text-muted-foreground hover:bg-secondary"
+                    onClick={() =>
+                      toast({
+                        title: 'Location next',
+                        description: 'Location tagging will be added directly to this composer, not as a second form.',
+                      })
+                    }
+                  >
                     <MapPin className="w-5 h-5" />
                   </Button>
                 </div>
@@ -1172,19 +1262,6 @@ export default function Feed() {
           <p className="text-sm text-muted-foreground">You've reached the end!</p>
         )}
       </div>
-
-      <CreatePostDialog 
-        open={createDialogOpen} 
-        onOpenChange={setCreateDialogOpen}
-        onPostCreated={fetchPosts}
-      />
-
-      <SchedulePostDialog
-        open={scheduleDialogOpen}
-        onOpenChange={setScheduleDialogOpen}
-        onPostScheduled={fetchPosts}
-      />
-
       <FloatingMessageButton />
     </MainLayout>
   );

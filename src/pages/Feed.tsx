@@ -529,19 +529,23 @@ export default function Feed() {
     });
 
     try {
-      if (wasLiked) {
-        // Unlike
-        await apiUnlikePost(postId);
-      } else {
-        // Like
-        await apiLikePost(postId);
+      const result = wasLiked
+        ? await apiUnlikePost(postId)
+        : await apiLikePost(postId);
+      // Sync with the authoritative server count to prevent drift
+      if (result?.likes_count !== undefined) {
+        setPosts(prev => {
+          const next = prev.map(p => p.id === postId ? { ...p, likes_count: result.likes_count } : p);
+          updateFeedCache(next, hasMore);
+          return next;
+        });
       }
     } catch (error) {
       console.error('Error toggling like:', error);
       // Revert optimistic update on error
       setPosts(prevPosts => {
-        const nextPosts = prevPosts.map(p => 
-          p.id === postId 
+        const nextPosts = prevPosts.map(p =>
+          p.id === postId
             ? { ...p, isLiked: wasLiked, likes_count: post.likes_count }
             : p
         );
@@ -581,18 +585,22 @@ export default function Feed() {
     });
 
     try {
-      await apiSharePost(postId);
-
-      toast({
-        title: 'Reposted',
-        description: 'This post is now shared to your network.',
-      });
+      const result = await apiSharePost(postId);
+      toast({ title: 'Reposted', description: 'This post is now shared to your network.' });
+      // Sync authoritative count from server
+      if (result?.shares_count !== undefined) {
+        setPosts(prev => {
+          const next = prev.map(p => p.id === postId ? { ...p, shares_count: result.shares_count } : p);
+          updateFeedCache(next, hasMore);
+          return next;
+        });
+      }
     } catch (error) {
       console.error('Error toggling repost:', error);
       // Revert optimistic update on error
       setPosts(prevPosts => {
-        const nextPosts = prevPosts.map(p => 
-          p.id === postId 
+        const nextPosts = prevPosts.map(p =>
+          p.id === postId
             ? { ...p, isReposted: false, shares_count: post.shares_count }
             : p
         );
@@ -638,19 +646,28 @@ export default function Feed() {
     });
 
     try {
+      const result = wasBookmarked
+        ? await apiUnbookmarkPost(postId)
+        : await apiBookmarkPost(postId);
       if (wasBookmarked) {
-        await apiUnbookmarkPost(postId);
         toast({ title: 'Removed', description: 'Post removed from bookmarks' });
       } else {
-        await apiBookmarkPost(postId);
         toast({ title: 'Saved', description: 'Post added to your bookmarks' });
+      }
+      // Sync authoritative count from server
+      if (result?.bookmarks_count !== undefined) {
+        setPosts(prev => {
+          const next = prev.map(p => p.id === postId ? { ...p, bookmarks_count: result.bookmarks_count } : p);
+          updateFeedCache(next, hasMore);
+          return next;
+        });
       }
     } catch (error) {
       console.error('Error toggling bookmark:', error);
       // Revert optimistic update
       setPosts(prevPosts => {
-        const nextPosts = prevPosts.map(p => 
-          p.id === postId 
+        const nextPosts = prevPosts.map(p =>
+          p.id === postId
             ? { ...p, isBookmarked: wasBookmarked, bookmarks_count: post.bookmarks_count }
             : p
         );

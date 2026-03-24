@@ -101,11 +101,11 @@ export const sharePost = async (postId: string) => {
 };
 
 export const bookmarkPost = async (postId: string) => {
-  return apiPost<{ success: boolean; bookmarked: boolean }>(`/posts/${postId}/bookmark/`);
+  return apiPost<{ success: boolean; bookmarked: boolean; bookmarks_count: number }>(`/posts/${postId}/bookmark/`);
 };
 
 export const unbookmarkPost = async (postId: string) => {
-  return apiPost<{ success: boolean; bookmarked: boolean }>(`/posts/${postId}/unbookmark/`);
+  return apiPost<{ success: boolean; bookmarked: boolean; bookmarks_count: number }>(`/posts/${postId}/unbookmark/`);
 };
 
 export const getTrendingPosts = async (limit = 20): Promise<PostsResponse> => {

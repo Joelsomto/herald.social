@@ -72,6 +72,10 @@ export const getBookmarkedPosts = async (params?: { page?: number; limit?: numbe
   return apiGet<PostsResponse>(`/bookmarks/my/${query ? `?${query}` : ''}`);
 };
 
+export const getPost = async (postId: string) => {
+  return apiGet<Post>(`/posts/${postId}/`);
+};
+
 export const createPost = async (payload: {
   content: string;
   media_url?: string;

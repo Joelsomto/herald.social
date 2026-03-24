@@ -34,6 +34,7 @@ import Causes from "./pages/Causes";
 import News from "./pages/News";
 import Bookmarks from "./pages/Bookmarks";
 import DbTest from "./pages/DbTest";
+import PostDetail from "./pages/PostDetail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -196,6 +197,7 @@ const AppRoutes = () => {
       <Route path="/causes" element={<ProtectedRoute><Causes /></ProtectedRoute>} />
       <Route path="/news" element={<ProtectedRoute><News /></ProtectedRoute>} />
       <Route path="/bookmarks" element={<ProtectedRoute><Bookmarks /></ProtectedRoute>} />
+      <Route path="/post/:postId" element={<PostDetail />} />
       <Route path="/db-test" element={<DbTest />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

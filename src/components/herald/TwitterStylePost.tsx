@@ -120,16 +120,17 @@ export function TwitterStylePost({
   }, [comments]);
 
   const handleLike = () => {
+    if (!onLike) return;
     setIsLiked(!isLiked);
     setLikeCount(prev => isLiked ? prev - 1 : prev + 1);
-    onLike?.(id);
+    onLike(id);
   };
 
   const handleRepost = () => {
-    if (isReposted) return;
+    if (!onRepost || isReposted) return;
     setIsReposted(!isReposted);
     setRepostCount(prev => prev + 1);
-    onRepost?.(id);
+    onRepost(id);
   };
 
   const handleToggleComments = () => {

@@ -728,7 +728,7 @@ export default function Feed() {
             />
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">
+                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full" onClick={() => setCreateDialogOpen(true)}>
                   <Image className="w-5 h-5" />
                 </Button>
                 <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">

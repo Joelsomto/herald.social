@@ -13,6 +13,10 @@ export type Post = {
   httn_earned: number;
   created_at: string;
   updated_at: string;
+  // Per-user interaction state returned by authenticated API
+  is_liked?: boolean;
+  is_reposted?: boolean;
+  is_bookmarked?: boolean;
   // Flattened author fields (added by backend for convenience)
   username?: string;
   display_name?: string;
@@ -63,6 +67,14 @@ export const getCurrentUserPosts = async (params?: { page?: number; limit?: numb
   return apiGet<PostsResponse>(`/users/me/posts/${query ? `?${query}` : ''}`);
 };
 
+export const getBookmarkedPosts = async (params?: { page?: number; limit?: number }) => {
+  const queryParams = new URLSearchParams();
+  if (params?.page) queryParams.append('page', params.page.toString());
+  if (params?.limit) queryParams.append('limit', params.limit.toString());
+  const query = queryParams.toString();
+  return apiGet<PostsResponse>(`/bookmarks/my/${query ? `?${query}` : ''}`);
+};
+
 export const createPost = async (payload: {
   content: string;
   media_url?: string;
@@ -76,19 +88,53 @@ export const deletePost = async (postId: string) => {
 };
 
 export const likePost = async (postId: string) => {
-  return apiPost<{ success: boolean; likes_count: number }>(`/posts/${postId}/like/`);
+  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/like/`);
 };
 
+/** Unlike a post — uses the /unlike/ action endpoint (POST). */
 export const unlikePost = async (postId: string) => {
-  return apiDelete<{ success: boolean; likes_count: number }>(`/posts/${postId}/like/`);
+  return apiPost<{ success: boolean; liked: boolean; likes_count: number }>(`/posts/${postId}/unlike/`);
 };
 
 export const sharePost = async (postId: string) => {
-  return apiPost<{ success: boolean; shares_count: number }>(`/posts/${postId}/share/`);
+  return apiPost<{ success: boolean; reposted: boolean; shares_count: number }>(`/posts/${postId}/share/`);
 };
 
 export const bookmarkPost = async (postId: string) => {
-  return apiPost<{ success: boolean }>(`/posts/${postId}/bookmark/`, {
-    body: {},
-  });
+  return apiPost<{ success: boolean; bookmarked: boolean }>(`/posts/${postId}/bookmark/`);
 };
+
+export const unbookmarkPost = async (postId: string) => {
+  return apiPost<{ success: boolean; bookmarked: boolean }>(`/posts/${postId}/unbookmark/`);
+};
+
+export const getTrendingPosts = async (limit = 20): Promise<PostsResponse> => {
+  const raw = await apiGet<unknown>(`/posts/trending/?limit=${limit}`);
+  return normalisePosts(raw, limit);
+};
+
+export const getFollowingPosts = async (params?: { page?: number; limit?: number }): Promise<PostsResponse> => {
+  const q = new URLSearchParams();
+  if (params?.page) q.append('page', String(params.page));
+  if (params?.limit) q.append('limit', String(params.limit));
+  const raw = await apiGet<unknown>(`/posts/following/?${q.toString()}`);
+  return normalisePosts(raw, params?.limit ?? 20);
+};
+
+function normalisePosts(raw: unknown, limit: number): PostsResponse {
+  if (Array.isArray(raw)) {
+    return { data: raw as Post[], pagination: { page: 1, limit, total: (raw as Post[]).length, total_pages: 1 } };
+  }
+  const r = raw as any;
+  const list: Post[] = r.data ?? r.results ?? [];
+  const total = r.total ?? r.count ?? list.length;
+  return {
+    data: list,
+    pagination: {
+      page: r.pagination?.page ?? r.page ?? 1,
+      limit,
+      total,
+      total_pages: r.pagination?.total_pages ?? r.total_pages ?? Math.ceil(total / limit),
+    },
+  };
+}

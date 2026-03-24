@@ -22,6 +22,8 @@ import Leaderboard from "./pages/Leaderboard";
 import Notifications from "./pages/Notifications";
 import Ads from "./pages/Ads";
 import Admin from "./pages/Admin";
+import AdminDashboard from "./pages/AdminDashboard";
+import AdsManagement from "./pages/AdsManagement";
 import UserProfile from "./pages/UserProfile";
 import EStore from "./pages/EStore";
 import NotFound from "./pages/NotFound";
@@ -30,6 +32,7 @@ import Live from "./pages/Live";
 import Communities from "./pages/Communities";
 import Causes from "./pages/Causes";
 import News from "./pages/News";
+import Bookmarks from "./pages/Bookmarks";
 import DbTest from "./pages/DbTest";
 
 const queryClient = new QueryClient();
@@ -173,13 +176,17 @@ const AppRoutes = () => {
       <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard /></ProtectedRoute>} />
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       <Route path="/ads" element={<ProtectedRoute><Ads /></ProtectedRoute>} />
-      <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+      <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+      <Route path="/admin/ads" element={<ProtectedRoute><AdsManagement /></ProtectedRoute>} />
+      <Route path="/admin/legacy" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
       <Route path="/user/:username" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
       <Route path="/store" element={<ProtectedRoute><EStore /></ProtectedRoute>} />
       <Route path="/live" element={<ProtectedRoute><Live /></ProtectedRoute>} />
+      <Route path="/live/:streamId" element={<ProtectedRoute><Live /></ProtectedRoute>} />
       <Route path="/communities" element={<ProtectedRoute><Communities /></ProtectedRoute>} />
       <Route path="/causes" element={<ProtectedRoute><Causes /></ProtectedRoute>} />
       <Route path="/news" element={<ProtectedRoute><News /></ProtectedRoute>} />
+      <Route path="/bookmarks" element={<ProtectedRoute><Bookmarks /></ProtectedRoute>} />
       <Route path="/db-test" element={<DbTest />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

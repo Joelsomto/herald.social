@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { MobileBottomNav } from '@/components/herald/MobileBottomNav';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
@@ -12,7 +13,7 @@ import {
   Video, Radio, Users, Play, Eye, BadgeCheck, Plus, Calendar,
   TrendingUp, Clock, Sparkles, Loader2, AlertCircle, RefreshCw
 } from 'lucide-react';
-// Supabase removed
+import { getStreams } from '@/lib/api/streams';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface LiveStream {
@@ -32,77 +33,10 @@ interface LiveStream {
   };
 }
 
-// Demo streams for when DB is empty
-const DEMO_STREAMS: LiveStream[] = [
-  {
-    id: 'demo-1',
-    title: 'Morning Devotional - Living in Purpose',
-    description: 'Join us for a powerful morning session',
-    user_id: 'demo-host-1',
-    viewer_count: 12500,
-    status: 'live',
-    scheduled_for: null,
-    thumbnail_url: null,
-    profile: {
-      display_name: 'Pastor Chris',
-      username: 'pastorchris',
-      avatar_url: null,
-      is_verified: true,
-    },
-  },
-  {
-    id: 'demo-2',
-    title: 'Web3 and Faith: Building the Future',
-    description: 'Exploring the intersection of technology and spirituality',
-    user_id: 'demo-host-2',
-    viewer_count: 3400,
-    status: 'live',
-    scheduled_for: null,
-    thumbnail_url: null,
-    profile: {
-      display_name: 'Herald Official',
-      username: 'herald',
-      avatar_url: null,
-      is_verified: true,
-    },
-  },
-  {
-    id: 'demo-3',
-    title: 'Creator Spotlight: How I Earned 10k HTTN',
-    description: 'Tips and strategies for maximizing your earnings',
-    user_id: 'demo-host-3',
-    viewer_count: 890,
-    status: 'live',
-    scheduled_for: null,
-    thumbnail_url: null,
-    profile: {
-      display_name: 'Sarah Chen',
-      username: 'sarahcreates',
-      avatar_url: null,
-      is_verified: true,
-    },
-  },
-  {
-    id: 'demo-4',
-    title: 'Night Vibes: Music & Chat',
-    description: 'Chill evening session with music',
-    user_id: 'demo-host-4',
-    viewer_count: 450,
-    status: 'live',
-    scheduled_for: null,
-    thumbnail_url: null,
-    profile: {
-      display_name: 'Alex Rivera',
-      username: 'alexr',
-      avatar_url: null,
-      is_verified: true,
-    },
-  },
-];
-
 export default function Live() {
+  const { streamId } = useParams<{ streamId?: string }>();
   const isMobile = useIsMobile();
-  const [streams, setStreams] = useState<LiveStream[]>(DEMO_STREAMS);
+  const [streams, setStreams] = useState<LiveStream[]>([]);
   const [selectedStream, setSelectedStream] = useState<LiveStream | null>(null);
   const [activeTab, setActiveTab] = useState('live');
   const [loading, setLoading] = useState(true);
@@ -112,26 +46,26 @@ export default function Live() {
     setError(null);
     setLoading(true);
     try {
-      const { data, error: err } = await supabase
-        .from('live_streams')
-        .select('*')
-        .order('viewer_count', { ascending: false });
-      if (err) throw err;
-
-      if (data && data.length > 0) {
-        const userIds = [...new Set(data.map(s => s.user_id))];
-        const { data: profiles } = await supabase
-          .from('users')
-          .select('user_id, display_name, username, avatar_url, is_verified')
-          .in('user_id', userIds);
-        const profileMap = new Map(profiles?.map(p => [p.user_id, p]));
-        setStreams(data.map(s => ({
-          ...s,
-          viewer_count: s.viewer_count ?? 0,
-          profile: profileMap.get(s.user_id) as LiveStream['profile'],
-        })));
+      const result = await getStreams({ limit: 50 });
+      const data = result.data;
+      if (data.length > 0) {
+        setStreams(
+          data.map((s: any) => ({
+            ...s,
+            viewer_count: s.viewer_count ?? 0,
+            profile: s.host
+              ? {
+                  display_name: s.host.display_name,
+                  username: s.host.username,
+                  avatar_url: s.host.avatar_url,
+                  is_verified: s.host.is_verified ?? false,
+                }
+              : undefined,
+          }))
+        );
+      } else {
+        setStreams([]);
       }
-      // else keep DEMO_STREAMS (initial state)
     } catch {
       setError('Failed to load streams.');
     } finally {
@@ -141,7 +75,17 @@ export default function Live() {
 
   useEffect(() => {
     fetchStreams();
+    const intervalId = window.setInterval(fetchStreams, 30000);
+    return () => window.clearInterval(intervalId);
   }, [fetchStreams]);
+
+  useEffect(() => {
+    if (!streamId || streams.length === 0) return;
+    const match = streams.find((stream) => stream.id === streamId);
+    if (match) {
+      setSelectedStream(match);
+    }
+  }, [streamId, streams]);
 
   const liveStreams = streams.filter(s => s.status === 'live');
   const scheduledStreams = streams.filter(s => s.status === 'scheduled');

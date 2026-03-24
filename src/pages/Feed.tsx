@@ -8,18 +8,17 @@ import { SchedulePostDialog } from '@/components/herald/SchedulePostDialog';
 import { FloatingMessageButton } from '@/components/herald/FloatingMessageButton';
 import { TrendingSection } from '@/components/herald/TrendingSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
-import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { PullToRefresh } from '@/components/herald/PullToRefresh';
 import { SearchBar } from '@/components/herald/SearchBar';
 import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Image, Smile, Calendar, MapPin, BadgeCheck, Loader2, RefreshCw, TrendingUp, Clock, Users, Share2, Bookmark, Trash2, AlertCircle } from 'lucide-react';
+import { Sparkles, Image, Smile, Calendar, MapPin, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { getPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, createPost } from '@/lib/api/posts';
+import { getPosts, getTrendingPosts, getFollowingPosts, deletePost as apiDeletePost, likePost as apiLikePost, unlikePost as apiUnlikePost, sharePost as apiSharePost, bookmarkPost as apiBookmarkPost, unbookmarkPost as apiUnbookmarkPost, createPost } from '@/lib/api/posts';
 import { getUserTasks, claimTaskReward } from '@/lib/api/tasks';
 import { useRealTimeNotifications } from '@/hooks/useRealTimeNotifications';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -97,11 +96,11 @@ export default function Feed() {
   const [hasMore, setHasMore] = useState(true);
   const [newPostsAvailable, setNewPostsAvailable] = useState(0);
   const [feedFilter, setFeedFilter] = useState<FeedFilter>('recent');
-  const [userInteractions, setUserInteractions] = useState<Map<string, { liked: boolean; reposted: boolean; bookmarked: boolean }>>(new Map());
   const [interactingPosts, setInteractingPosts] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const filterMountedRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -141,24 +140,47 @@ export default function Feed() {
     };
   }, [hasMore, isLoadingMore, posts]);
 
+  // Re-fetch when feed filter tab changes (skip on initial mount)
+  useEffect(() => {
+    if (!filterMountedRef.current) {
+      filterMountedRef.current = true;
+      return;
+    }
+    if (user) {
+      setPosts([]);
+      setHasMore(true);
+      fetchPosts(feedFilter);
+    }
+  }, [feedFilter]);
+
   const loadMorePosts = async () => {
     if (isLoadingMore || !hasMore || posts.length === 0) return;
-    
+
+    // Trending is a single fixed-size list — no pagination
+    if (feedFilter === 'trending') {
+      setHasMore(false);
+      return;
+    }
+
     setIsLoadingMore(true);
-    
+
     try {
       // Calculate next page based on current posts
       const currentPage = Math.floor(posts.length / 20) + 1;
-      const response = await getPosts({ page: currentPage + 1, limit: 10, sort: '-created_at' });
-      
-      // Handle both response formats
       let newPosts: any[] = [];
-      if (Array.isArray(response)) {
-        newPosts = response;
-      } else if (response && 'data' in response && Array.isArray(response.data)) {
+
+      if (feedFilter === 'following') {
+        const response = await getFollowingPosts({ page: currentPage + 1, limit: 10 });
         newPosts = response.data;
+      } else {
+        const response = await getPosts({ page: currentPage + 1, limit: 10, sort: '-created_at' });
+        if (Array.isArray(response)) {
+          newPosts = response;
+        } else if (response && 'data' in response && Array.isArray(response.data)) {
+          newPosts = response.data;
+        }
       }
-      
+
       if (newPosts.length < 10) setHasMore(false);
       
       // Map posts using flattened author fields (same as fetchPosts)
@@ -168,7 +190,7 @@ export default function Feed() {
         const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
         const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
         const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-        
+
         return {
           ...p,
           author: {
@@ -179,7 +201,10 @@ export default function Feed() {
             is_verified,
             is_creator,
           },
-          media_url: p.media_url || null
+          media_url: p.media_url || null,
+          isLiked: p.is_liked ?? false,
+          isReposted: p.is_reposted ?? false,
+          isBookmarked: p.is_bookmarked ?? false,
         };
       })]);
     } catch (error) {
@@ -228,42 +253,39 @@ export default function Feed() {
     }
   };
 
-  const fetchPosts = async () => {
-    try {
-      console.log('fetchPosts: starting');
-      const startTime = performance.now();
-      
-      const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+  const fetchPosts = async (filter: FeedFilter = feedFilter) => {
+    setIsLoading(true);
+    setError(null);
 
-      const duration = performance.now() - startTime;
-      console.log(`fetchPosts: completed in ${duration.toFixed(0)}ms`);
-      console.log('fetchPosts raw response:', JSON.stringify(response, null, 2));
-      
-      // Handle both response formats: direct array or wrapped in {data: [...]}
+    try {
       let postsArray: any[] = [];
-      if (Array.isArray(response)) {
-        postsArray = response;
-      } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
+
+      if (filter === 'trending') {
+        const response = await getTrendingPosts(20);
         postsArray = response.data;
+        setHasMore(false); // trending has no pagination
+      } else if (filter === 'following') {
+        const response = await getFollowingPosts({ page: 1, limit: 20 });
+        postsArray = response.data;
+        setHasMore(postsArray.length >= 20);
+      } else {
+        const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+        if (Array.isArray(response)) {
+          postsArray = response;
+        } else if (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data)) {
+          postsArray = response.data;
+        }
+        setHasMore(postsArray.length >= 20);
       }
-      
-      console.log(`fetchPosts: loaded ${postsArray.length} posts`);
-      
+
       if (postsArray.length > 0) {
-        // Log first post to see structure
-        console.log('fetchPosts first post structure:', JSON.stringify(postsArray[0], null, 2));
-        
         setPosts(postsArray.map((p: any) => {
-          // Backend now returns flattened author fields at top level
-          // Priority: use flattened fields, fallback to nested author, then author_id
           const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
           const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id.display_name : null) || 'Unknown';
           const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id.avatar_url : null);
           const is_verified = p.is_verified || p.author?.is_verified || (typeof p.author_id === 'object' ? p.author_id.is_verified : false);
           const is_creator = p.is_creator || p.author?.is_creator || (typeof p.author_id === 'object' ? p.author_id.is_creator : false);
-          
-          console.log(`Post ${p.id} - username: ${username}, display_name: ${display_name}`);
-          
+
           return {
             ...p,
             author: {
@@ -274,7 +296,10 @@ export default function Feed() {
               is_verified,
               is_creator,
             },
-            media_url: p.media_url || null
+            media_url: p.media_url || null,
+            isLiked: p.is_liked ?? false,
+            isReposted: p.is_reposted ?? false,
+            isBookmarked: p.is_bookmarked ?? false,
           };
         }));
       } else {
@@ -283,6 +308,9 @@ export default function Feed() {
     } catch (error) {
       console.error('fetchPosts error:', error instanceof Error ? error.message : error);
       setPosts([]);
+      setError('Unable to load feed right now. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -367,45 +395,40 @@ export default function Feed() {
     if (!user || interactingPosts.has(postId)) return;
 
     const post = posts.find(p => p.id === postId);
-    if (!post) return;
-
-    const wasReposted = post.isReposted || false;
-    const newRepostCount = wasReposted ? post.shares_count - 1 : post.shares_count + 1;
+    if (!post || post.isReposted) return;
 
     // Optimistic update
     setInteractingPosts(prev => new Set(prev).add(postId));
     setPosts(prevPosts => prevPosts.map(p => 
       p.id === postId 
-        ? { ...p, isReposted: !wasReposted, shares_count: newRepostCount }
+        ? { ...p, isReposted: true, shares_count: p.shares_count + 1 }
         : p
     ));
 
     try {
-      if (wasReposted) {
-        // Unrepost: Note - API may not support unrepost, treat as success
-        console.log('Unrepost not supported by API yet');
-      } else {
-        // Repost
-        await apiSharePost(postId);
+      await apiSharePost(postId);
 
-        // Send notification to post author
-        if (post.author_id !== user.id) {
-          createNotification(
-            post.author_id,
-            'share',
-            'Repost!',
-            'reposted your content',
-            postId,
-            'post'
-          );
-        }
+      if (post.author_id !== user.id) {
+        createNotification(
+          post.author_id,
+          'share',
+          'Repost!',
+          'reposted your content',
+          postId,
+          'post'
+        );
       }
+
+      toast({
+        title: 'Reposted',
+        description: 'This post is now shared to your network.',
+      });
     } catch (error) {
       console.error('Error toggling repost:', error);
       // Revert optimistic update on error
       setPosts(prevPosts => prevPosts.map(p => 
         p.id === postId 
-          ? { ...p, isReposted: wasReposted, shares_count: post.shares_count }
+          ? { ...p, isReposted: false, shares_count: post.shares_count }
           : p
       ));
       toast({
@@ -440,19 +463,11 @@ export default function Feed() {
 
     try {
       if (wasBookmarked) {
-        // Un-bookmark: Note - API may not support removing bookmarks yet
-        console.log('Un-bookmark not supported by API yet');
-        toast({
-          title: 'Unbookmarked',
-          description: 'Post removed from bookmarks',
-        });
+        await apiUnbookmarkPost(postId);
+        toast({ title: 'Removed', description: 'Post removed from bookmarks' });
       } else {
         await apiBookmarkPost(postId);
-
-        toast({
-          title: 'Bookmarked',
-          description: 'Post saved to your bookmarks',
-        });
+        toast({ title: 'Saved', description: 'Post added to your bookmarks' });
       }
     } catch (error) {
       console.error('Error toggling bookmark:', error);
@@ -490,20 +505,48 @@ export default function Feed() {
           text: shareText,
           url: shareUrl,
         });
+        toast({
+          title: 'Shared',
+          description: 'Post shared successfully.',
+        });
       } catch (error: any) {
         if (error.name !== 'AbortError') {
           console.error('Error sharing:', error);
+          toast({
+            title: 'Error',
+            description: 'Unable to share this post right now.',
+            variant: 'destructive',
+          });
         }
       }
     } else {
       // Fallback: copy to clipboard
-      await navigator.clipboard.writeText(shareUrl);
-      toast({
-        title: 'Link copied!',
-        description: 'Post link copied to clipboard',
-      });
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: 'Link copied!',
+          description: 'Post link copied to clipboard',
+        });
+      } catch (error) {
+        console.error('Error copying share link:', error);
+        toast({
+          title: 'Error',
+          description: 'Unable to copy the post link.',
+          variant: 'destructive',
+        });
+      }
     }
   };
+
+  const handleCommentAdded = useCallback((postId: string, countDelta = 1) => {
+    setPosts(prevPosts =>
+      prevPosts.map(post =>
+        post.id === postId
+          ? { ...post, comments_count: post.comments_count + countDelta }
+          : post
+      )
+    );
+  }, []);
 
   const handleDeletePost = async (postId: string) => {
     if (!user) return;
@@ -684,9 +727,16 @@ export default function Feed() {
       {/* Compose Box */}
       <div className="border-b border-border p-4">
         <div className="flex gap-3">
-          <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0">
-            {profile?.display_name?.[0] || '?'}
-          </div>
+          {/* Avatar with UIAvatar fallback */}
+          {profile?.avatar_url ? (
+            <img src={profile.avatar_url} alt={profile.display_name || ''} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <img
+              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.display_name || profile?.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`}
+              alt="User avatar"
+              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+            />
+          )}
           <div className="flex-1">
             <Textarea
               placeholder="What's happening?"
@@ -696,7 +746,7 @@ export default function Feed() {
             />
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">
+                <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full" onClick={() => setCreateDialogOpen(true)}>
                   <Image className="w-5 h-5" />
                 </Button>
                 <Button variant="ghost" size="icon" className="text-primary hover:bg-primary/10 rounded-full">
@@ -760,64 +810,77 @@ export default function Feed() {
       {/* Feed */}
       <div>
         {/* Posts from database */}
-        {posts.map((post, index) => (
-          <div key={post.id}>
-            <TwitterStylePost
-              id={post.id}
-              author={{
-                id: post.author_id,
-                displayName: post.author?.display_name || 'Unknown',
-                username: post.author?.username || 'unknown',
-                avatar: post.author?.avatar_url || null,
-                isVerified: post.author?.is_verified || false,
-                isGoldVerified: post.author?.is_verified && post.author?.is_creator,
-              }}
-              content={post.content}
-              mediaUrl={post.media_url || undefined}
-              mediaType={post.media_type as 'image' | 'video' | undefined}
-              likes={post.likes_count}
-              comments={post.comments_count}
-              reposts={post.shares_count}
-              httnEarned={post.httn_earned}
-              createdAt={new Date(post.created_at)}
-              isLiked={post.isLiked}
-              isReposted={post.isReposted}
-              isBookmarked={post.isBookmarked}
-              onLike={handleLike}
-              onRepost={handleRepost}
-              onBookmark={handleBookmark}
-              onShare={handleShare}
-            />
-            {/* Post actions menu for own posts */}
-            {user && post.author_id === user.id && (
-              <div className="px-4 pb-2 flex justify-end">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem 
-                      className="text-destructive"
-                      onClick={() => handleDeletePost(post.id)}
-                    >
-                      <Trash2 className="w-4 h-4 mr-2" />
-                      Delete Post
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+        {isLoading && posts.length === 0 ? (
+          // Loading skeleton for perceived speed
+          <div className="space-y-4 p-8">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex gap-3 animate-pulse">
+                <div className="w-10 h-10 rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-1/3 bg-muted rounded" />
+                  <div className="h-3 w-2/3 bg-muted rounded" />
+                  <div className="h-3 w-1/2 bg-muted rounded" />
+                </div>
               </div>
-            )}
-            {/* Insert more ads periodically */}
-            {index === 2 && (
-              <div className="px-4 py-3 border-b border-border">
-                <VerticalAdBanner {...verticalAds[1]} />
-              </div>
-            )}
+            ))}
           </div>
-        ))}
+        ) : (
+          posts.map((post, index) => (
+            <div key={post.id}>
+              <TwitterStylePost
+                id={post.id}
+                author={{
+                  id: post.author_id,
+                  displayName: post.author?.display_name || 'Unknown',
+                  username: post.author?.username || 'unknown',
+                  avatar:
+                    post.author?.avatar_url ||
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author?.display_name || post.author?.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`,
+                  isVerified: post.author?.is_verified || false,
+                  isGoldVerified: post.author?.is_verified && post.author?.is_creator,
+                }}
+                content={post.content}
+                mediaUrl={post.media_url || undefined}
+                mediaType={post.media_type as 'image' | 'video' | undefined}
+                likes={post.likes_count}
+                comments={post.comments_count}
+                reposts={post.shares_count}
+                httnEarned={post.httn_earned}
+                createdAt={new Date(post.created_at)}
+                isLiked={post.isLiked}
+                isReposted={post.isReposted}
+                isBookmarked={post.isBookmarked}
+                onLike={handleLike}
+                onRepost={handleRepost}
+                onCommentAdded={handleCommentAdded}
+                onBookmark={handleBookmark}
+                onShare={handleShare}
+              />
+              {/* Post actions menu for own posts */}
+              {user && post.author_id === user.id && (
+                <div className="px-4 pb-2 flex justify-end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-destructive">
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem 
+                        className="text-destructive"
+                        onClick={() => handleDeletePost(post.id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete Post
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )}
+            </div>
+          ))
+        )}
 
         {/* No posts message */}
         {posts.length === 0 && (

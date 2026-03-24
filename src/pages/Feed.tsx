@@ -79,6 +79,7 @@ type FeedFilter = 'recent' | 'trending' | 'following';
 
 const QUICK_POST_LIMIT = 280;
 const QUICK_POST_WARNING_THRESHOLD = 40;
+const INTERACTION_SYNC_INTERVAL_MS = 5_000;
 const FEED_POSTS_CACHE_TTL_MS = 30_000;
 const FEED_USER_DATA_CACHE_TTL_MS = 120_000;
 const FEED_TOP_CREATORS_CACHE_TTL_MS = 300_000;
@@ -252,7 +253,7 @@ export default function Feed() {
   useEffect(() => {
     if (!user) return;
 
-    const checkForNewPosts = async () => {
+    const syncFeedInteractions = async () => {
       if (document.visibilityState !== 'visible') return;
       if (isLoading || isLoadingMore) return;
 
@@ -338,10 +339,20 @@ export default function Feed() {
       }
     };
 
-    const intervalId = window.setInterval(checkForNewPosts, 20_000);
+    void syncFeedInteractions();
+
+    const handleVisibilityOrFocus = () => {
+      void syncFeedInteractions();
+    };
+
+    const intervalId = window.setInterval(syncFeedInteractions, INTERACTION_SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
 
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
     };
   }, [user, isLoading, isLoadingMore, hasMore, mapPost, mergePostState, updateFeedCache]);
 

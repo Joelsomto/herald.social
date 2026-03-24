@@ -14,6 +14,8 @@ import { useToast } from '@/hooks/use-toast';
 import { likePost, unlikePost, sharePost, bookmarkPost, unbookmarkPost, getPost } from '@/lib/api/posts';
 import { ApiError } from '@/lib/apiClient';
 
+const INTERACTION_SYNC_INTERVAL_MS = 5_000;
+
 interface Profile {
   id?: string;
   username: string;
@@ -121,7 +123,7 @@ export default function PostDetail() {
   useEffect(() => {
     if (!postId) return;
 
-    const intervalId = window.setInterval(async () => {
+    const syncPostInteractions = async () => {
       if (document.visibilityState !== 'visible') return;
 
       try {
@@ -140,10 +142,22 @@ export default function PostDetail() {
       } catch (error) {
         console.error('Error refreshing post detail interactions:', error);
       }
-    }, 20_000);
+    };
+
+    void syncPostInteractions();
+
+    const handleVisibilityOrFocus = () => {
+      void syncPostInteractions();
+    };
+
+    const intervalId = window.setInterval(syncPostInteractions, INTERACTION_SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
 
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
     };
   }, [postId]);
 

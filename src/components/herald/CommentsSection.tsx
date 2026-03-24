@@ -8,6 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 
+const COMMENTS_SYNC_INTERVAL_MS = 5_000;
+
 interface Comment {
   id: string;
   content: string;
@@ -77,10 +79,24 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
   };
 
   useEffect(() => {
-    if (isOpen) {
-      fetchComments();
-      // TODO: Add realtime subscription via WebSocket
-    }
+    if (!isOpen) return;
+
+    void fetchComments();
+
+    const syncComments = () => {
+      if (document.visibilityState !== 'visible') return;
+      void fetchComments();
+    };
+
+    const intervalId = window.setInterval(syncComments, COMMENTS_SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', syncComments);
+    window.addEventListener('focus', syncComments);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', syncComments);
+      window.removeEventListener('focus', syncComments);
+    };
   }, [isOpen, postId]);
 
   const fetchComments = async () => {

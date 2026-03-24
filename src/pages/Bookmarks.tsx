@@ -14,6 +14,8 @@ import {
   sharePost as apiSharePost,
 } from '@/lib/api/posts';
 
+const INTERACTION_SYNC_INTERVAL_MS = 5_000;
+
 interface Post {
   id: string;
   content: string;
@@ -79,6 +81,25 @@ export default function Bookmarks() {
 
   useEffect(() => {
     if (user) fetchBookmarks();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const syncBookmarks = () => {
+      if (document.visibilityState !== 'visible') return;
+      void fetchBookmarks();
+    };
+
+    const intervalId = window.setInterval(syncBookmarks, INTERACTION_SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', syncBookmarks);
+    window.addEventListener('focus', syncBookmarks);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', syncBookmarks);
+      window.removeEventListener('focus', syncBookmarks);
+    };
   }, [user]);
 
   const handleLike = async (postId: string) => {

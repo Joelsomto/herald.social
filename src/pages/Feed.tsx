@@ -129,6 +129,16 @@ export default function Feed() {
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const filterMountedRef = useRef(false);
+  const postsRef = useRef<Post[]>([]);
+  const feedFilterRef = useRef<FeedFilter>('recent');
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+
+  useEffect(() => {
+    feedFilterRef.current = feedFilter;
+  }, [feedFilter]);
 
   const mapPost = useCallback((p: any): Post => {
     const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id.username : null) || 'unknown';
@@ -207,6 +217,66 @@ export default function Feed() {
       fetchPosts(feedFilter, true);
     }
   }, [feedFilter]);
+
+  useEffect(() => {
+    if (feedFilter !== 'recent') {
+      setNewPostsAvailable(0);
+    }
+  }, [feedFilter]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const checkForNewPosts = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (feedFilterRef.current !== 'recent') return;
+      if (isLoading || isLoadingMore) return;
+
+      try {
+        const response = await getPosts({ page: 1, limit: 20, sort: '-created_at' });
+        const latestPosts = Array.isArray(response)
+          ? response
+          : (response && typeof response === 'object' && 'data' in response && Array.isArray(response.data))
+            ? response.data
+            : [];
+
+        const mappedLatestPosts = latestPosts.map(mapPost);
+        const currentPosts = postsRef.current;
+
+        if (currentPosts.length === 0) return;
+
+        const currentIds = new Set(currentPosts.map((post) => post.id));
+        const freshPosts = mappedLatestPosts.filter((post) => !currentIds.has(post.id));
+        if (freshPosts.length === 0) return;
+
+        const userNearTop = window.scrollY < 180;
+
+        if (userNearTop) {
+          setPosts((prevPosts) => {
+            const prevIds = new Set(prevPosts.map((post) => post.id));
+            const postsToAdd = mappedLatestPosts.filter((post) => !prevIds.has(post.id));
+            if (postsToAdd.length === 0) return prevPosts;
+
+            const nextPosts = [...postsToAdd, ...prevPosts];
+            updateFeedCache(nextPosts, hasMore, 'recent');
+            return nextPosts;
+          });
+          setNewPostsAvailable(0);
+          return;
+        }
+
+        setNewPostsAvailable(freshPosts.length);
+      } catch (error) {
+        console.error('Error checking for new posts:', error);
+      }
+    };
+
+    const intervalId = window.setInterval(checkForNewPosts, 20_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [user, isLoading, isLoadingMore, hasMore, mapPost, updateFeedCache]);
 
   const loadMorePosts = async () => {
     if (isLoadingMore || !hasMore || posts.length === 0) return;

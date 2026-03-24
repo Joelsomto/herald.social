@@ -31,6 +31,26 @@ interface CommentsSectionProps {
   onCommentAdded?: () => void;
 }
 
+/** Small reusable avatar: shows image if url present, else first letter of name. */
+function Avatar({ url, name, size = 8 }: { url?: string | null; name?: string | null; size?: number }) {
+  const sizeClass = `w-${size} h-${size}`;
+  const initial = (name || '?')[0].toUpperCase();
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={name || ''}
+        className={`${sizeClass} rounded-full object-cover flex-shrink-0`}
+      />
+    );
+  }
+  return (
+    <div className={`${sizeClass} rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0 text-sm`}>
+      {initial}
+    </div>
+  );
+}
+
 export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded }: CommentsSectionProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -55,12 +75,12 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       // Organize comments into threads (assuming flat structure from API)
       const topLevel = response.data.filter((c: any) => !c.parent_comment_id);
       const replies = response.data.filter((c: any) => c.parent_comment_id);
-      
+
       const threaded = topLevel.map((comment: any) => ({
         ...comment,
         replies: replies.filter((r: any) => r.parent_comment_id === comment.id),
       }));
-      
+
       setComments(threaded as any);
     } catch (error) {
       console.error('Error fetching comments:', error);
@@ -101,7 +121,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
 
   const handleLikeComment = async (commentId: string) => {
     if (!user) return;
-    
+
     try {
       await likeComment(commentId);
       fetchComments();
@@ -114,9 +134,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
 
   const CommentItem = ({ comment, isReply = false }: { comment: Comment; isReply?: boolean }) => (
     <div className={`flex gap-3 ${isReply ? 'ml-12 mt-3' : ''}`}>
-      <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0 text-sm">
-        {comment.author?.display_name?.[0] || '?'}
-      </div>
+      <Avatar url={comment.author?.avatar_url} name={comment.author?.display_name || comment.author?.username} />
       <div className="flex-1">
         <div className="flex items-center gap-1">
           <span className="font-semibold text-sm text-foreground">
@@ -135,7 +153,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
         </div>
         <p className="text-foreground text-sm mt-0.5">{comment.content}</p>
         <div className="flex items-center gap-4 mt-2">
-          <button 
+          <button
             className="flex items-center gap-1 text-muted-foreground hover:text-rose-500 transition-colors text-xs"
             onClick={() => handleLikeComment(comment.id)}
           >
@@ -143,7 +161,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
             {comment.likes_count > 0 && <span>{comment.likes_count}</span>}
           </button>
           {!isReply && (
-            <button 
+            <button
               className="flex items-center gap-1 text-muted-foreground hover:text-blue-400 transition-colors text-xs"
               onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
             >
@@ -152,7 +170,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
             </button>
           )}
         </div>
-        
+
         {/* Reply input */}
         {replyingTo === comment.id && (
           <div className="flex gap-2 mt-3">
@@ -162,8 +180,8 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
               onChange={(e) => setReplyContent(e.target.value)}
               className="min-h-[60px] text-sm"
             />
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="gold"
               onClick={() => handleSubmitReply(comment.id)}
               disabled={isLoading || !replyContent.trim()}
@@ -172,7 +190,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
             </Button>
           </div>
         )}
-        
+
         {/* Replies */}
         {comment.replies?.map(reply => (
           <CommentItem key={reply.id} comment={reply} isReply />
@@ -186,9 +204,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       {/* Comment input */}
       {user && (
         <div className="flex gap-3">
-          <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center font-display font-bold text-foreground flex-shrink-0 text-sm">
-            ?
-          </div>
+          <Avatar url={(user as any).avatar_url} name={(user as any).display_name || user.username} />
           <div className="flex-1 flex gap-2">
             <Textarea
               placeholder="Post your reply..."
@@ -196,7 +212,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
               onChange={(e) => setNewComment(e.target.value)}
               className="min-h-[60px] text-sm"
             />
-            <Button 
+            <Button
               variant="gold"
               onClick={handleSubmitComment}
               disabled={isLoading || !newComment.trim()}
@@ -206,7 +222,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
           </div>
         </div>
       )}
-      
+
       {/* Comments list */}
       <div className="space-y-4">
         {comments.length === 0 ? (

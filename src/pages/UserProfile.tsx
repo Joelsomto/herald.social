@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
+import { ProfileReplyCard } from '@/components/herald/ProfileReplyCard';
 import { FollowButton } from '@/components/herald/FollowButton';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
-import { getUserByUsername, getUserPosts } from '@/lib/api/users';
+import { getUserByUsername, getUserPosts, getUserReplies, type UserReply } from '@/lib/api/users';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,9 +46,41 @@ interface Post {
   likes_count: number;
   comments_count: number;
   shares_count: number;
-  bookmarks_count?: number;
+  bookmarks_count: number;
   httn_earned: number;
   created_at: string;
+  author_id: string;
+  author: {
+    id?: string;
+    username: string;
+    display_name: string;
+    avatar_url?: string | null;
+    is_verified?: boolean;
+    is_creator?: boolean;
+  };
+  isLiked?: boolean;
+  isReposted?: boolean;
+  isBookmarked?: boolean;
+}
+
+function mapPost(p: any): Post {
+  const username = p.username || p.author?.username || (typeof p.author_id === 'object' ? p.author_id?.username : null) || 'unknown';
+  const display_name = p.display_name || p.author?.display_name || (typeof p.author_id === 'object' ? p.author_id?.display_name : null) || 'Unknown';
+  const avatar_url = p.avatar_url || p.author?.avatar_url || (typeof p.author_id === 'object' ? p.author_id?.avatar_url : null);
+  const is_verified = p.is_verified || p.author?.is_verified || false;
+  const is_creator = p.is_creator || p.author?.is_creator || false;
+
+  return {
+    ...p,
+    author_id: typeof p.author_id === 'string' ? p.author_id : p.author_id?.id || p.author?.id || '',
+    author: { id: p.author?.id || p.author_id?.id, username, display_name, avatar_url, is_verified, is_creator },
+    media_url: p.media_url || null,
+    media_type: p.media_type || null,
+    bookmarks_count: p.bookmarks_count ?? 0,
+    isLiked: p.is_liked ?? false,
+    isReposted: p.is_reposted ?? false,
+    isBookmarked: p.is_bookmarked ?? false,
+  };
 }
 
 
@@ -57,6 +90,9 @@ export default function UserProfile() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [likedPosts, setLikedPosts] = useState<Post[]>([]);
+  const [mediaPosts, setMediaPosts] = useState<Post[]>([]);
+  const [replies, setReplies] = useState<UserReply[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adIndex, setAdIndex] = useState(0);
@@ -85,23 +121,45 @@ export default function UserProfile() {
       if (profileData) {
         setProfile(profileData as any);
         try {
-          const postsResponse = await getUserPosts(profileData.id, { limit: 20 });
-          const rawPosts = Array.isArray(postsResponse)
-            ? postsResponse
-            : (postsResponse as any)?.data ?? (postsResponse as any)?.results ?? [];
-          setPosts(rawPosts as any);
+          const [postsResponse, likesResponse, mediaResponse, repliesResponse] = await Promise.all([
+            getUserPosts(profileData.id, { limit: 20 }),
+            getUserPosts(profileData.id, { limit: 20, tab: 'likes' }),
+            getUserPosts(profileData.id, { limit: 20, tab: 'media' }),
+            getUserReplies(profileData.id),
+          ]);
+
+          const toPosts = (response: any) => {
+            const rawPosts = Array.isArray(response)
+              ? response
+              : response?.data ?? response?.results ?? [];
+            return rawPosts.map(mapPost);
+          };
+
+          setPosts(toPosts(postsResponse));
+          setLikedPosts(toPosts(likesResponse));
+          setMediaPosts(toPosts(mediaResponse));
+          setReplies(Array.isArray(repliesResponse) ? repliesResponse : []);
         } catch {
           setPosts([]);
+          setLikedPosts([]);
+          setMediaPosts([]);
+          setReplies([]);
         }
       } else {
         setProfile(null);
         setPosts([]);
+        setLikedPosts([]);
+        setMediaPosts([]);
+        setReplies([]);
       }
     } catch (err) {
       console.error('Error fetching profile:', err);
       setError('Failed to load profile.');
       setProfile(null);
       setPosts([]);
+      setLikedPosts([]);
+      setMediaPosts([]);
+      setReplies([]);
     } finally {
       setLoading(false);
     }
@@ -326,12 +384,12 @@ export default function UserProfile() {
                 key={post.id}
                 id={post.id}
                 author={{
-                  id: profile.user_id,
-                  displayName: profile.display_name || profile.username || 'User',
-                  username: profile.username || 'user',
-                  avatar: profile.avatar_url,
-                  isVerified: profile.is_verified || false,
-                  isGoldVerified: isGoldVerified,
+                  id: post.author_id,
+                  displayName: post.author.display_name,
+                  username: post.author.username,
+                  avatar: post.author.avatar_url || null,
+                  isVerified: post.author.is_verified,
+                  isGoldVerified: post.author.is_verified && post.author.is_creator,
                 }}
                 content={post.content}
                 mediaUrl={post.media_url || undefined}
@@ -352,14 +410,30 @@ export default function UserProfile() {
         </TabsContent>
 
         <TabsContent value="replies" className="mt-0">
-          <div className="p-8 text-center text-muted-foreground">
-            No replies yet
-          </div>
+          {replies.length > 0 ? (
+            replies.map((reply) => (
+              <ProfileReplyCard
+                key={reply.id}
+                author={{
+                  displayName: profile.display_name || profile.username || 'User',
+                  username: profile.username || 'user',
+                  avatar: profile.avatar_url,
+                  isVerified: profile.is_verified || false,
+                  isGoldVerified: isGoldVerified,
+                }}
+                reply={reply}
+              />
+            ))
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              No replies yet
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="media" className="mt-0">
           <div className="grid grid-cols-3 gap-0.5">
-            {posts.filter(p => p.media_url).map((post) => (
+            {mediaPosts.map((post) => (
               <div key={post.id} className="aspect-square bg-secondary">
                 <img 
                   src={post.media_url!} 
@@ -369,7 +443,7 @@ export default function UserProfile() {
               </div>
             ))}
           </div>
-          {posts.filter(p => p.media_url).length === 0 && (
+          {mediaPosts.length === 0 && (
             <div className="p-8 text-center text-muted-foreground">
               No media yet
             </div>
@@ -377,9 +451,38 @@ export default function UserProfile() {
         </TabsContent>
 
         <TabsContent value="likes" className="mt-0">
-          <div className="p-8 text-center text-muted-foreground">
-            Likes are private
-          </div>
+          {likedPosts.length > 0 ? (
+            likedPosts.map((post) => (
+              <TwitterStylePost
+                key={post.id}
+                id={post.id}
+                author={{
+                  id: post.author_id,
+                  displayName: post.author.display_name,
+                  username: post.author.username,
+                  avatar: post.author.avatar_url || null,
+                  isVerified: post.author.is_verified,
+                  isGoldVerified: post.author.is_verified && post.author.is_creator,
+                }}
+                content={post.content}
+                mediaUrl={post.media_url || undefined}
+                mediaType={post.media_type as 'image' | 'video' | undefined}
+                likes={post.likes_count}
+                comments={post.comments_count}
+                reposts={post.shares_count}
+                bookmarks={post.bookmarks_count}
+                httnEarned={post.httn_earned}
+                createdAt={new Date(post.created_at)}
+                isLiked={post.isLiked}
+                isReposted={post.isReposted}
+                isBookmarked={post.isBookmarked}
+              />
+            ))
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              No liked posts yet
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </MainLayout>

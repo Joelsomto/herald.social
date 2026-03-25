@@ -3,6 +3,21 @@ import type { ApiUser } from './types';
 import type { Post, PostsResponse } from './posts';
 import type { UserTask, TasksResponse } from './tasks';
 
+export type UserReply = {
+  id: string;
+  content: string;
+  likes_count: number;
+  created_at: string;
+  updated_at: string;
+  post_id: string;
+  post_content: string;
+  post_media_url?: string | null;
+  post_media_type?: string | null;
+  post_author_username: string;
+  post_author_display_name: string;
+  post_author_avatar_url?: string | null;
+};
+
 export const getCurrentUser = async () => {
   return apiGet<ApiUser>('/auth/users/profiles/me/');
 };
@@ -77,11 +92,13 @@ export const getCurrentUserPosts = async (params?: {
   page?: number;
   limit?: number;
   sort?: string;
+  tab?: 'posts' | 'likes' | 'media';
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.page) queryParams.append('page', params.page.toString());
   if (params?.limit) queryParams.append('limit', params.limit.toString());
   if (params?.sort) queryParams.append('sort', params.sort);
+  if (params?.tab) queryParams.append('tab', params.tab);
 
   const query = queryParams.toString();
   return apiGet<PostsResponse>(`/users/me/posts/${query ? `?${query}` : ''}`);
@@ -91,14 +108,24 @@ export const getUserPosts = async (userId: string, params?: {
   page?: number;
   limit?: number;
   sort?: string;
+  tab?: 'posts' | 'likes' | 'media';
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.page) queryParams.append('page', params.page.toString());
   if (params?.limit) queryParams.append('limit', params.limit.toString());
   if (params?.sort) queryParams.append('sort', params.sort);
+  if (params?.tab) queryParams.append('tab', params.tab);
 
   const query = queryParams.toString();
   return apiGet<PostsResponse>(`/users/${userId}/posts/${query ? `?${query}` : ''}`);
+};
+
+export const getCurrentUserReplies = async () => {
+  return apiGet<UserReply[]>('/users/me/replies/');
+};
+
+export const getUserReplies = async (userId: string) => {
+  return apiGet<UserReply[]>(`/users/${userId}/replies/`);
 };
 
 export const getCurrentUserTasks = async (params?: {

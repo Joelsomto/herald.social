@@ -6,14 +6,18 @@ import { apiGet, apiPost, apiDelete } from '@/lib/apiClient';
 
 interface FollowButtonProps {
   targetUserId: string;
+  targetProfileId?: string;
   onFollowChange?: (isFollowing: boolean) => void;
+  onCountsChange?: (counts: { followers_count?: number; following_count?: number }) => void;
   variant?: 'default' | 'outline';
   size?: 'sm' | 'default';
 }
 
 export function FollowButton({
   targetUserId,
+  targetProfileId,
   onFollowChange,
+  onCountsChange,
   variant = 'outline',
   size = 'sm',
 }: FollowButtonProps) {
@@ -21,21 +25,24 @@ export function FollowButton({
   const { toast } = useToast();
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const followTargetId = targetProfileId || targetUserId;
+  const isOwnProfile = !!user && user.id === targetUserId;
 
   useEffect(() => {
-    if (user && targetUserId) {
+    if (user && followTargetId) {
       checkFollowStatus();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, targetUserId]);
+  }, [user, followTargetId]);
 
   const checkFollowStatus = async () => {
     if (!user) return;
     try {
-      const data = await apiGet<{ is_following: boolean }>(
-        `/follow/check/?user_id=${targetUserId}`
+      const data = await apiGet<{ is_following: boolean; followers_count?: number; following_count?: number }>(
+        `/follows/status/${followTargetId}/`
       );
       setIsFollowing(data?.is_following ?? false);
+      onCountsChange?.({ followers_count: data?.followers_count, following_count: data?.following_count });
     } catch {
       setIsFollowing(false);
     }
@@ -51,25 +58,28 @@ export function FollowButton({
       return;
     }
 
-    if (user.id === targetUserId) return;
+    if (isOwnProfile) return;
 
     setIsLoading(true);
     try {
       if (isFollowing) {
-        await apiDelete(`/users/${targetUserId}/follow/`);
+        const data = await apiDelete<{ followers_count?: number; following_count?: number }>(`/users/${followTargetId}/follow/`);
         setIsFollowing(false);
         onFollowChange?.(false);
+        onCountsChange?.(data ?? {});
         toast({ title: 'Unfollowed', description: 'You unfollowed this user' });
       } else {
-        await apiPost(`/users/${targetUserId}/follow/`, {});
+        const data = await apiPost<{ followers_count?: number; following_count?: number }>(`/users/${followTargetId}/follow/`, {});
         setIsFollowing(true);
         onFollowChange?.(true);
+        onCountsChange?.(data ?? {});
         toast({ title: 'Following!', description: 'You are now following this user' });
       }
     } catch (err: any) {
       if (err?.status === 409) {
         setIsFollowing(true);
         onFollowChange?.(true);
+        onCountsChange?.(err?.details ?? {});
       } else {
         toast({
           title: 'Error',
@@ -82,7 +92,7 @@ export function FollowButton({
     }
   };
 
-  if (!user || user.id === targetUserId) return null;
+  if (!user || isOwnProfile) return null;
 
   return (
     <Button

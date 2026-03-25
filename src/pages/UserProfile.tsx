@@ -306,7 +306,22 @@ export default function UserProfile() {
             <p className="text-muted-foreground">@{profile.username}</p>
           </div>
           {user && profile.user_id !== user.id && (
-            <FollowButton targetUserId={profile.user_id} size="default" />
+            <FollowButton
+              targetUserId={profile.user_id}
+              targetProfileId={profile.id}
+              size="default"
+              onCountsChange={(counts) => {
+                setProfile((prev) => prev ? {
+                  ...prev,
+                  followers_count: typeof counts.followers_count === 'number'
+                    ? counts.followers_count
+                    : prev.followers_count,
+                  following_count: typeof counts.following_count === 'number'
+                    ? counts.following_count
+                    : prev.following_count,
+                } : prev);
+              }}
+            />
           )}
         </div>
 

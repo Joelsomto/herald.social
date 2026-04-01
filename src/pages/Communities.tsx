@@ -33,7 +33,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { joinCommunity, leaveCommunity, getCommunities } from '@/lib/api/communities';
+import { joinCommunity, leaveCommunity, getCommunities, createCommunity } from '@/lib/api/communities';
 import { apiGet } from '@/lib/apiClient';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
 import { WalletPreview } from '@/components/herald/WalletPreview';
@@ -90,6 +90,7 @@ export default function Communities() {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [joinedCommunities, setJoinedCommunities] = useState<string[]>([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [creatingCommunity, setCreatingCommunity] = useState(false);
   const [newCommunity, setNewCommunity] = useState({
     name: '',
     description: '',
@@ -187,12 +188,38 @@ export default function Communities() {
     }
 
     try {
-      // TODO: Implement create community endpoint
-      // POST /api/v1/communities/
-      toast({ title: 'Coming Soon', description: 'Create community feature will be available soon.' });
+      setCreatingCommunity(true);
+      const created = await createCommunity({
+        name: newCommunity.name.trim(),
+        description: newCommunity.description.trim(),
+        category: newCommunity.category || 'general',
+        is_private: newCommunity.is_private,
+      });
+
+      setCommunities((prev) => [mapCommunity({
+        id: created.id,
+        name: created.name,
+        description: created.description ?? null,
+        category: created.category,
+        image_url: created.image_url ?? null,
+        member_count: created.member_count ?? 1,
+        is_private: created.is_private,
+        created_by: created.created_by,
+      }), ...prev]);
+      setJoinedCommunities((prev) => Array.from(new Set([created.id, ...prev])));
+      setNewCommunity({
+        name: '',
+        description: '',
+        category: 'general',
+        is_private: false,
+      });
       setCreateDialogOpen(false);
+      toast({ title: 'Success', description: 'Community created successfully.' });
     } catch (error) {
-      toast({ title: 'Error', description: 'Failed to create community.' });
+      const errorMsg = error instanceof Error ? error.message : 'Failed to create community.';
+      toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
+    } finally {
+      setCreatingCommunity(false);
     }
   };
 
@@ -315,8 +342,15 @@ export default function Communities() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button variant="gold" className="w-full" onClick={handleCreateCommunity}>
-                    Create Community
+                  <Button variant="gold" className="w-full" onClick={handleCreateCommunity} disabled={creatingCommunity}>
+                    {creatingCommunity ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create Community'
+                    )}
                   </Button>
                 </div>
               </DialogContent>

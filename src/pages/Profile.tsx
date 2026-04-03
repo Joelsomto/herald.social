@@ -29,9 +29,8 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
-import { getCurrentUser, updateCurrentUser, getCurrentUserReplies, type UserReply } from '@/lib/api/users';
+import { getCurrentUser, updateCurrentUser, getCurrentUserReplies, getCurrentUserPosts, type UserReply } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
-import { getCurrentUserPosts } from '@/lib/api/posts';
 import { ApiError } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
 import { AvatarUpload } from '@/components/herald/AvatarUpload';
@@ -158,7 +157,7 @@ export default function Profile() {
         });
       }
       if (walletData) setWallet(walletData as any);
-      if (postsResponse?.data) setPosts((postsResponse.data as any[]).map(mapPost));
+      setPosts(((postsResponse?.data as any[]) ?? []).map(mapPost));
 
       const [likesResponse, mediaResponse, repliesResponse] = await Promise.all([
         getCurrentUserPosts({ limit: 50, tab: 'likes' }),

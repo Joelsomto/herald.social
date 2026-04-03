@@ -18,6 +18,34 @@ export type UserReply = {
   post_author_avatar_url?: string | null;
 };
 
+function normalisePostsResponse(raw: PostsResponse | Post[] | unknown, limit?: number): PostsResponse {
+  if (Array.isArray(raw)) {
+    return {
+      data: raw as Post[],
+      pagination: {
+        page: 1,
+        limit: limit ?? raw.length,
+        total: raw.length,
+        total_pages: 1,
+      },
+    };
+  }
+
+  const r = raw as any;
+  const list: Post[] = r?.data ?? r?.results ?? [];
+  const total = r?.pagination?.total ?? r?.total ?? r?.count ?? list.length;
+  const resolvedLimit = r?.pagination?.limit ?? r?.limit ?? limit ?? list.length;
+  return {
+    data: list,
+    pagination: {
+      page: r?.pagination?.page ?? r?.page ?? 1,
+      limit: resolvedLimit,
+      total,
+      total_pages: r?.pagination?.total_pages ?? r?.total_pages ?? Math.ceil(total / Math.max(resolvedLimit || 1, 1)),
+    },
+  };
+}
+
 export const getCurrentUser = async () => {
   return apiGet<ApiUser>('/auth/users/profiles/me/');
 };
@@ -101,7 +129,8 @@ export const getCurrentUserPosts = async (params?: {
   if (params?.tab) queryParams.append('tab', params.tab);
 
   const query = queryParams.toString();
-  return apiGet<PostsResponse>(`/users/me/posts/${query ? `?${query}` : ''}`);
+  const raw = await apiGet<PostsResponse | Post[]>(`/users/me/posts/${query ? `?${query}` : ''}`);
+  return normalisePostsResponse(raw, params?.limit);
 };
 
 export const getUserPosts = async (userId: string, params?: {
@@ -117,7 +146,8 @@ export const getUserPosts = async (userId: string, params?: {
   if (params?.tab) queryParams.append('tab', params.tab);
 
   const query = queryParams.toString();
-  return apiGet<PostsResponse>(`/users/${userId}/posts/${query ? `?${query}` : ''}`);
+  const raw = await apiGet<PostsResponse | Post[]>(`/users/${userId}/posts/${query ? `?${query}` : ''}`);
+  return normalisePostsResponse(raw, params?.limit);
 };
 
 export const getCurrentUserReplies = async () => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import { ProfileReplyCard } from '@/components/herald/ProfileReplyCard';
@@ -6,37 +6,32 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   BadgeCheck,
-  Edit2,
-  Sparkles,
+  Camera,
   Heart,
-  TrendingUp,
+  MessageCircle,
+  Repeat2,
+  Sparkles,
   Calendar,
-  Save,
-  X,
   MapPin,
   Link as LinkIcon,
   ArrowLeft,
-  Building2,
-  Church,
-  Briefcase,
   Loader2,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, updateCurrentUser, getCurrentUserReplies, getCurrentUserPosts, type UserReply } from '@/lib/api/users';
+import { uploadAvatar, uploadCover } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
 import { ApiError } from '@/lib/apiClient';
 import { useToast } from '@/hooks/use-toast';
-import { AvatarUpload } from '@/components/herald/AvatarUpload';
 import { useNavigate } from 'react-router-dom';
 import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 
 interface ProfileData {
@@ -46,6 +41,9 @@ interface ProfileData {
   username: string | null;
   bio: string | null;
   avatar_url: string | null;
+  cover_url: string | null;
+  location: string | null;
+  website: string | null;
   tier: string | null;
   reputation: number | null;
   is_verified: boolean;
@@ -54,9 +52,6 @@ interface ProfileData {
   followers_count: number;
   following_count: number;
   created_at: string;
-  account_type: string | null;
-  organization_name: string | null;
-  business_category: string | null;
 }
 
 interface WalletData {
@@ -84,6 +79,8 @@ interface Post {
   is_liked?: boolean;
   is_reposted?: boolean;
   is_bookmarked?: boolean;
+  profile_reposted?: boolean;
+  profile_reposted_at?: string | null;
 }
 
 function mapPost(p: any): Post {
@@ -104,6 +101,17 @@ function mapPost(p: any): Post {
   };
 }
 
+function normalizeWebsiteInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+}
+
+function formatWebsiteLabel(value?: string | null) {
+  if (!value) return '';
+  return value.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
 export default function Profile() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -116,13 +124,20 @@ export default function Profile() {
   const [replies, setReplies] = useState<UserReply[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const [removeCover, setRemoveCover] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
   const [editForm, setEditForm] = useState({
     display_name: '',
-    username: '',
     bio: '',
-    account_type: 'normal',
-    organization_name: '',
-    business_category: '',
+    location: '',
+    website: '',
   });
 
   const VERIFICATION_THRESHOLD = 10000;
@@ -149,11 +164,9 @@ export default function Profile() {
         setProfile(profileData as any);
         setEditForm({
           display_name: profileData.display_name || '',
-          username: profileData.username || '',
           bio: profileData.bio || '',
-          account_type: (profileData as any).account_type || 'normal',
-          organization_name: (profileData as any).organization_name || '',
-          business_category: (profileData as any).business_category || '',
+          location: profileData.location || '',
+          website: profileData.website || '',
         });
       }
       if (walletData) setWallet(walletData as any);
@@ -179,23 +192,41 @@ export default function Profile() {
     if (!user || !profile) return;
 
     try {
+      setSavingProfile(true);
       await updateCurrentUser({
         display_name: editForm.display_name,
-        username: editForm.username,
         bio: editForm.bio,
-        ...(editForm.account_type !== 'normal' && {
-          organization_name: editForm.organization_name,
-        }),
-        ...(editForm.account_type === 'business' && {
-          business_category: editForm.business_category,
-        }),
+        location: editForm.location.trim() || null,
+        website: normalizeWebsiteInput(editForm.website) || null,
+        ...(removeAvatar ? { avatar_url: null } : {}),
+        ...(removeCover ? { cover_url: null } : {}),
       } as any);
+
+      if (avatarFile) {
+        const avatarResult = await uploadAvatar(avatarFile);
+        if (avatarResult?.avatar_url) {
+          setProfile((current) => current ? { ...current, avatar_url: avatarResult.avatar_url } : current);
+        }
+      }
+
+      if (coverFile) {
+        const coverResult = await uploadCover(coverFile);
+        if (coverResult?.cover_url) {
+          setProfile((current) => current ? { ...current, cover_url: coverResult.cover_url } : current);
+        }
+      }
 
       toast({
         title: 'Profile Updated',
         description: 'Your profile has been updated successfully',
       });
       setIsEditing(false);
+      setAvatarFile(null);
+      setCoverFile(null);
+      setAvatarPreview(null);
+      setCoverPreview(null);
+      setRemoveAvatar(false);
+      setRemoveCover(false);
       fetchProfileData();
     } catch (error) {
       toast({
@@ -203,6 +234,8 @@ export default function Profile() {
         description: 'Failed to update profile',
         variant: 'destructive',
       });
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -211,6 +244,75 @@ export default function Profile() {
       setProfile({ ...profile, avatar_url: newUrl });
     }
   };
+
+  const beginEditing = () => {
+    setIsEditing(true);
+    setAvatarFile(null);
+    setCoverFile(null);
+    setAvatarPreview(null);
+    setCoverPreview(null);
+    setRemoveAvatar(false);
+    setRemoveCover(false);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setAvatarFile(null);
+    setCoverFile(null);
+    setAvatarPreview(null);
+    setCoverPreview(null);
+    setRemoveAvatar(false);
+    setRemoveCover(false);
+    if (profile) {
+      setEditForm({
+        display_name: profile.display_name || '',
+        bio: profile.bio || '',
+        location: profile.location || '',
+        website: profile.website || '',
+      });
+    }
+  };
+
+  const handleImageSelect = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    kind: 'avatar' | 'cover'
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Invalid file',
+        description: 'Please choose an image file.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'File too large',
+        description: 'Please choose an image smaller than 5MB.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    if (kind === 'avatar') {
+      setAvatarFile(file);
+      setAvatarPreview(preview);
+      setRemoveAvatar(false);
+    } else {
+      setCoverFile(file);
+      setCoverPreview(preview);
+      setRemoveCover(false);
+    }
+  };
+
+  const displayedAvatar = removeAvatar ? null : (avatarPreview || profile?.avatar_url || null);
+  const displayedCover = removeCover ? null : (coverPreview || profile?.cover_url || null);
+  const websiteLabel = formatWebsiteLabel(profile?.website);
 
   const toggleCreatorMode = async () => {
     if (!user || !profile) return;
@@ -291,7 +393,15 @@ export default function Profile() {
         </header>
 
         {/* Cover Image */}
-        <div className="h-32 sm:h-48 bg-gradient-to-r from-primary/30 via-primary/20 to-herald-violet/20" />
+        <div className="relative h-32 sm:h-48 bg-gradient-to-r from-primary/30 via-primary/20 to-herald-violet/20 overflow-hidden">
+          {displayedCover && (
+            <img
+              src={displayedCover}
+              alt="Profile header"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+        </div>
 
         {/* Profile Info */}
         <div className="px-4 pb-4">
@@ -299,191 +409,67 @@ export default function Profile() {
           <div className="flex justify-between items-start -mt-16 mb-3">
             {user && (
               <div className="border-4 border-background rounded-full">
-                <AvatarUpload
-                  userId={user.id}
-                  currentAvatarUrl={profile?.avatar_url || null}
-                  displayName={profile?.display_name || null}
-                  onAvatarChange={handleAvatarChange}
-                  size="lg"
-                />
+                <div className="w-24 h-24 rounded-full overflow-hidden bg-secondary flex items-center justify-center">
+                  {displayedAvatar ? (
+                    <img src={displayedAvatar} alt={profile?.display_name || 'Profile'} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-2xl font-display font-bold text-foreground">
+                      {(profile?.display_name || profile?.username || '?')[0].toUpperCase()}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
             
-            {!isEditing ? (
-              <Button 
-                variant="outline" 
-                className="mt-16 rounded-full font-semibold"
-                onClick={() => setIsEditing(true)}
-              >
-                Edit profile
-              </Button>
-            ) : (
-              <div className="flex gap-2 mt-16">
-                <Button variant="ghost" size="icon" onClick={() => setIsEditing(false)}>
-                  <X className="w-4 h-4" />
-                </Button>
-                <Button variant="gold" onClick={handleSaveProfile}>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save
-                </Button>
-              </div>
-            )}
+            <Button
+              variant="outline"
+              className="mt-16 rounded-full font-semibold"
+              onClick={beginEditing}
+            >
+              Edit profile
+            </Button>
           </div>
 
           {/* Name & Handle */}
           <div className="mb-3">
-            {isEditing ? (
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-1">Display Name</Label>
-                  <Input
-                    value={editForm.display_name}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, display_name: e.target.value }))}
-                    placeholder="Display name"
-                    className="text-xl font-display font-bold"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-1">Username</Label>
-                  <Input
-                    value={editForm.username}
-                    onChange={(e) => setEditForm(prev => ({ ...prev, username: e.target.value }))}
-                    placeholder="@username"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground mb-1">Account Type</Label>
-                  <Select
-                    value={editForm.account_type}
-                    onValueChange={(value) => setEditForm(prev => ({ ...prev, account_type: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select account type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="normal">
-                        <div className="flex items-center gap-2">
-                          <Building2 className="w-4 h-4" />
-                          Normal Account
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="church">
-                        <div className="flex items-center gap-2">
-                          <Church className="w-4 h-4" />
-                          Church / Group
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="business">
-                        <div className="flex items-center gap-2">
-                          <Briefcase className="w-4 h-4" />
-                          Business Account
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Organization Name - shown for Church and Business */}
-                {(editForm.account_type === 'church' || editForm.account_type === 'business') && (
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1">
-                      {editForm.account_type === 'church' ? 'Organization / Ministry Name' : 'Business Name'}
-                    </Label>
-                    <Input
-                      value={editForm.organization_name}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, organization_name: e.target.value }))}
-                      placeholder={editForm.account_type === 'church' ? 'Enter church or organization name' : 'Enter business name'}
-                    />
-                  </div>
-                )}
-
-                {/* Business Category - shown only for Business */}
-                {editForm.account_type === 'business' && (
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1">Business Category</Label>
-                    <Select
-                      value={editForm.business_category}
-                      onValueChange={(value) => setEditForm(prev => ({ ...prev, business_category: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select business category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="retail">Retail & E-commerce</SelectItem>
-                        <SelectItem value="technology">Technology</SelectItem>
-                        <SelectItem value="finance">Finance & Banking</SelectItem>
-                        <SelectItem value="healthcare">Healthcare</SelectItem>
-                        <SelectItem value="education">Education</SelectItem>
-                        <SelectItem value="entertainment">Entertainment & Media</SelectItem>
-                        <SelectItem value="hospitality">Hospitality & Tourism</SelectItem>
-                        <SelectItem value="real_estate">Real Estate</SelectItem>
-                        <SelectItem value="consulting">Consulting & Services</SelectItem>
-                        <SelectItem value="nonprofit">Non-Profit</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-1">
-                  <h2 className="font-display font-bold text-xl text-foreground">
-                    {profile?.display_name || 'Anonymous'}
-                  </h2>
-                  {profile?.is_verified && profile?.is_creator && (
-                    <BadgeCheck className="w-5 h-5 text-primary fill-primary/20" />
-                  )}
-                  {profile?.is_verified && !profile?.is_creator && (
-                    <BadgeCheck className="w-5 h-5 text-blue-400" />
-                  )}
-                </div>
-                <p className="text-muted-foreground">@{profile?.username || 'username'}</p>
-                
-                {/* Show account type badge and org info */}
-                {profile?.account_type && profile.account_type !== 'normal' && (
-                  <div className="flex flex-wrap items-center gap-2 mt-2">
-                    <Badge variant="outline" className="flex items-center gap-1">
-                      {profile.account_type === 'church' ? (
-                        <Church className="w-3 h-3" />
-                      ) : (
-                        <Briefcase className="w-3 h-3" />
-                      )}
-                      {profile.account_type === 'church' ? 'Church / Group' : 'Business'}
-                    </Badge>
-                    {profile.organization_name && (
-                      <span className="text-sm text-muted-foreground flex items-center gap-1">
-                        <Building2 className="w-3 h-3" />
-                        {profile.organization_name}
-                      </span>
-                    )}
-                    {profile.business_category && (
-                      <Badge variant="secondary" className="text-xs">
-                        {profile.business_category.replace('_', ' ')}
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
+            <div className="flex items-center gap-1">
+              <h2 className="font-display font-bold text-xl text-foreground">
+                {profile?.display_name || 'Anonymous'}
+              </h2>
+              {profile?.is_verified && profile?.is_creator && (
+                <BadgeCheck className="w-5 h-5 text-primary fill-primary/20" />
+              )}
+              {profile?.is_verified && !profile?.is_creator && (
+                <BadgeCheck className="w-5 h-5 text-blue-400" />
+              )}
+            </div>
+            <p className="text-muted-foreground">@{profile?.username || 'username'}</p>
           </div>
 
           {/* Bio */}
-          {isEditing ? (
-            <Textarea
-              value={editForm.bio}
-              onChange={(e) => setEditForm(prev => ({ ...prev, bio: e.target.value }))}
-              placeholder="Tell the world about yourself..."
-              className="mb-3"
-            />
-          ) : (
-            <p className="text-foreground mb-3">
-              {profile?.bio || 'No bio yet.'}
-            </p>
-          )}
+          <p className="text-foreground mb-3">
+            {profile?.bio || 'No bio yet.'}
+          </p>
 
           {/* Meta Info */}
           <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mb-3">
+            {profile?.location && (
+              <span className="flex items-center gap-1">
+                <MapPin className="w-4 h-4" />
+                {profile.location}
+              </span>
+            )}
+            {websiteLabel && (
+              <a
+                href={profile?.website || '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-primary hover:underline"
+              >
+                <LinkIcon className="w-4 h-4" />
+                {websiteLabel}
+              </a>
+            )}
             <span className="flex items-center gap-1">
               <Calendar className="w-4 h-4" />
               Joined {profile?.created_at ? formatDate(profile.created_at) : 'Recently'}
@@ -569,17 +555,17 @@ export default function Profile() {
             >
               Posts
             </TabsTrigger>
-            <TabsTrigger 
-              value="replies" 
-              className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
-            >
-              Replies
-            </TabsTrigger>
-            <TabsTrigger 
-              value="media" 
-              className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
-            >
-              Media
+          <TabsTrigger 
+            value="replies" 
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+          >
+            Replies
+          </TabsTrigger>
+          <TabsTrigger 
+            value="media" 
+            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent py-3"
+          >
+            Media
             </TabsTrigger>
             <TabsTrigger 
               value="likes" 
@@ -603,6 +589,12 @@ export default function Profile() {
                         {profile?.display_name?.[0] || '?'}
                       </div>
                       <div className="flex-1 min-w-0">
+                        {post.profile_reposted && (
+                          <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                            <Repeat2 className="w-3 h-3" />
+                            <span>You reposted</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-1">
                           <span className="font-semibold text-foreground">{profile?.display_name}</span>
                           {profile?.is_verified && profile?.is_creator && (
@@ -651,7 +643,7 @@ export default function Profile() {
             )}
           </TabsContent>
 
-          <TabsContent value="replies" className="mt-0">
+        <TabsContent value="replies" className="mt-0">
             {replies.length > 0 ? (
               replies.map((reply) => (
                 <ProfileReplyCard
@@ -671,9 +663,9 @@ export default function Profile() {
                 No replies yet
               </div>
             )}
-          </TabsContent>
+        </TabsContent>
 
-          <TabsContent value="media" className="mt-0">
+        <TabsContent value="media" className="mt-0">
             <div className="grid grid-cols-3 gap-0.5">
               {mediaPosts.map((post) => (
                 <div key={post.id} className="aspect-square">
@@ -723,6 +715,155 @@ export default function Profile() {
             )}
           </TabsContent>
         </Tabs>
+
+        <Dialog open={isEditing} onOpenChange={(open) => { if (!open) cancelEditing(); }}>
+          <DialogContent className="sm:max-w-2xl bg-card border-border p-0 overflow-hidden">
+            <DialogHeader className="border-b border-border px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <Button variant="ghost" size="sm" onClick={cancelEditing}>
+                  Cancel
+                </Button>
+                <DialogTitle className="font-display text-lg">Edit profile</DialogTitle>
+                <Button variant="gold" size="sm" onClick={handleSaveProfile} disabled={savingProfile}>
+                  {savingProfile ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+            </DialogHeader>
+
+            <div className="max-h-[85vh] overflow-y-auto">
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => handleImageSelect(event, 'cover')}
+              />
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => handleImageSelect(event, 'avatar')}
+              />
+
+              <div className="relative h-48 bg-gradient-to-r from-primary/30 via-primary/20 to-herald-violet/20">
+                {displayedCover && (
+                  <img
+                    src={displayedCover}
+                    alt="Profile header"
+                    className="absolute inset-0 h-full w-full object-cover"
+                  />
+                )}
+                <div className="absolute inset-0 bg-black/20" />
+                <div className="absolute right-4 top-4 flex gap-2">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="rounded-full"
+                    onClick={() => coverInputRef.current?.click()}
+                  >
+                    <Camera className="w-4 h-4" />
+                  </Button>
+                  {displayedCover && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full bg-background/90"
+                      onClick={() => {
+                        setCoverFile(null);
+                        setCoverPreview(null);
+                        setRemoveCover(true);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="px-5 pb-6">
+                <div className="-mt-12 mb-6 flex items-end justify-between gap-4">
+                  <div className="relative h-24 w-24 overflow-hidden rounded-full border-4 border-background bg-secondary">
+                    {displayedAvatar ? (
+                      <img src={displayedAvatar} alt={profile?.display_name || 'Profile'} className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-2xl font-display font-bold text-foreground">
+                        {(profile?.display_name || profile?.username || '?')[0].toUpperCase()}
+                      </div>
+                    )}
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      className="absolute bottom-0 right-0 rounded-full"
+                      onClick={() => avatarInputRef.current?.click()}
+                    >
+                      <Camera className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  {displayedAvatar && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full"
+                      onClick={() => {
+                        setAvatarFile(null);
+                        setAvatarPreview(null);
+                        setRemoveAvatar(true);
+                      }}
+                    >
+                      Remove photo
+                    </Button>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Name</Label>
+                    <Input
+                      value={editForm.display_name}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, display_name: e.target.value }))}
+                      placeholder="Name"
+                      maxLength={50}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Bio</Label>
+                    <Textarea
+                      value={editForm.bio}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, bio: e.target.value }))}
+                      placeholder="Describe yourself"
+                      maxLength={160}
+                      className="min-h-[110px]"
+                    />
+                    <p className="text-right text-xs text-muted-foreground">{editForm.bio.length}/160</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Location</Label>
+                    <Input
+                      value={editForm.location}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
+                      placeholder="Location"
+                      maxLength={50}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Website</Label>
+                    <Input
+                      value={editForm.website}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, website: e.target.value }))}
+                      placeholder="Website"
+                      inputMode="url"
+                      maxLength={100}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );

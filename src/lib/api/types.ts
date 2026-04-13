@@ -6,7 +6,10 @@ export type ApiUser = {
   full_name?: string | null;
   email: string;
   avatar_url?: string | null;
+  cover_url?: string | null;
   bio?: string | null;
+  location?: string | null;
+  website?: string | null;
   tier?: 'free' | 'creator' | 'premium';
   reputation?: number;
   is_verified?: boolean;

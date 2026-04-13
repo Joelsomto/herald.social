@@ -29,6 +29,9 @@ interface Profile {
   display_name: string | null;
   bio: string | null;
   avatar_url: string | null;
+  cover_url?: string | null;
+  location?: string | null;
+  website?: string | null;
   followers_count: number | null;
   following_count: number | null;
   is_verified: boolean | null;
@@ -61,6 +64,13 @@ interface Post {
   isLiked?: boolean;
   isReposted?: boolean;
   isBookmarked?: boolean;
+  profile_reposted?: boolean;
+  profile_reposted_at?: string | null;
+}
+
+function formatWebsiteLabel(value?: string | null) {
+  if (!value) return '';
+  return value.replace(/^https?:\/\//i, '').replace(/\/$/, '');
 }
 
 function mapPost(p: any): Post {
@@ -173,6 +183,7 @@ export default function UserProfile() {
   };
 
   const isGoldVerified = profile?.is_verified && (profile?.tier === 'partner' || profile?.tier === 'herald');
+  const websiteLabel = formatWebsiteLabel(profile?.website);
 
   const rightSidebar = (
     <>
@@ -265,7 +276,15 @@ export default function UserProfile() {
       </header>
 
       {/* Banner */}
-      <div className="h-32 bg-gradient-to-r from-primary/20 via-secondary to-primary/10" />
+      <div className="h-32 overflow-hidden bg-gradient-to-r from-primary/20 via-secondary to-primary/10">
+        {profile.cover_url ? (
+          <img
+            src={profile.cover_url}
+            alt="Profile header"
+            className="w-full h-full object-cover"
+          />
+        ) : null}
+      </div>
 
       {/* Profile Info */}
       <div className="px-4 pb-4 border-b border-border">
@@ -332,6 +351,23 @@ export default function UserProfile() {
 
         {/* Meta info */}
         <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground mb-4">
+          {profile.location && (
+            <span className="flex items-center gap-1">
+              <MapPin className="w-4 h-4" />
+              {profile.location}
+            </span>
+          )}
+          {websiteLabel && (
+            <a
+              href={profile.website || '#'}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 text-primary hover:underline"
+            >
+              <LinkIcon className="w-4 h-4" />
+              {websiteLabel}
+            </a>
+          )}
           {profile.tier && (
             <span className="flex items-center gap-1 capitalize">
               <Sparkles className="w-4 h-4 text-primary" />
@@ -415,6 +451,7 @@ export default function UserProfile() {
                 bookmarks={post.bookmarks_count ?? 0}
                 httnEarned={post.httn_earned}
                 createdAt={new Date(post.created_at)}
+                repostContext={post.profile_reposted ? `${profile.display_name || profile.username || 'User'} reposted` : null}
               />
             ))
           ) : (

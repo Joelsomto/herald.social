@@ -108,6 +108,10 @@ export const unbookmarkPost = async (postId: string) => {
   return apiPost<{ success: boolean; bookmarked: boolean; bookmarks_count: number }>(`/posts/${postId}/unbookmark/`);
 };
 
+export const clearAllBookmarks = async () => {
+  return apiPost<{ success: boolean; cleared_count: number }>('/bookmarks/clear-all/');
+};
+
 export const getTrendingPosts = async (limit = 20): Promise<PostsResponse> => {
   const raw = await apiGet<unknown>(`/posts/trending/?limit=${limit}`);
   return normalisePosts(raw, limit);

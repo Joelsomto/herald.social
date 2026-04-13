@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/herald/MainLayout';
 import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import { Button } from '@/components/ui/button';
-import { Loader2, Bookmark, RefreshCw } from 'lucide-react';
+import { Loader2, Bookmark, RefreshCw, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import {
+  clearAllBookmarks as apiClearAllBookmarks,
   getBookmarkedPosts,
   bookmarkPost as apiBookmarkPost,
   unbookmarkPost as apiUnbookmarkPost,
@@ -64,6 +65,7 @@ export default function Bookmarks() {
   const { toast } = useToast();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false);
   const [interacting, setInteracting] = useState<Set<string>>(new Set());
 
   const fetchBookmarks = async () => {
@@ -159,17 +161,39 @@ export default function Bookmarks() {
     }
   };
 
+  const handleClearAll = async () => {
+    if (clearing || posts.length === 0) return;
+    setClearing(true);
+    try {
+      await apiClearAllBookmarks();
+      setPosts([]);
+      toast({ title: 'Cleared', description: 'All bookmarked posts were removed.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to clear bookmarks', variant: 'destructive' });
+    } finally {
+      setClearing(false);
+    }
+  };
+
   return (
     <MainLayout>
       {/* Header */}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-lg border-b border-border px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bookmark className="w-5 h-5 text-primary" />
-          <h1 className="font-display font-bold text-xl text-foreground">Bookmarks</h1>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <Bookmark className="w-5 h-5 text-primary" />
+            <h1 className="font-display font-bold text-xl text-foreground">Bookmarks</h1>
+          </div>
+          <p className="text-xs text-muted-foreground">Only you can see the posts you save here.</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={fetchBookmarks} disabled={loading} className="rounded-full">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={handleClearAll} disabled={loading || clearing || posts.length === 0} className="rounded-full">
+            <Trash2 className={`w-4 h-4 ${clearing ? 'animate-pulse' : ''}`} />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={fetchBookmarks} disabled={loading} className="rounded-full">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </header>
 
       {/* Content */}

@@ -57,6 +57,37 @@ interface Transaction {
   created_at: string;
 }
 
+type SendCurrency = 'httn_points' | 'httn_tokens' | 'espees';
+
+const sendCurrencyMeta: Record<
+  SendCurrency,
+  {
+    label: string;
+    unit: string;
+    buttonLabel: string;
+    balanceKey: keyof WalletData;
+  }
+> = {
+  httn_points: {
+    label: 'HTTN Points',
+    unit: 'points',
+    buttonLabel: 'Send Points',
+    balanceKey: 'httn_points',
+  },
+  httn_tokens: {
+    label: 'HTTN Tokens',
+    unit: 'HTTN',
+    buttonLabel: 'Send Tokens',
+    balanceKey: 'httn_tokens',
+  },
+  espees: {
+    label: 'Espees',
+    unit: 'ESP',
+    buttonLabel: 'Send Espees',
+    balanceKey: 'espees',
+  },
+};
+
 export default function Wallet() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -66,6 +97,7 @@ export default function Wallet() {
   const [convertAmount, setConvertAmount] = useState('');
   const [sendUsername, setSendUsername] = useState('');
   const [sendAmount, setSendAmount] = useState('');
+  const [sendCurrency, setSendCurrency] = useState<SendCurrency>('httn_points');
   const [converting, setConverting] = useState(false);
   const [sending, setSending] = useState(false);
   const [loadingTransactions, setLoadingTransactions] = useState(true);
@@ -148,11 +180,13 @@ export default function Wallet() {
   const handleSendHTTN = async () => {
     if (!wallet || !user || !sendUsername || !sendAmount) return;
 
-    const amount = parseInt(sendAmount, 10);
-    if (Number.isNaN(amount) || amount <= 0 || amount > wallet.httn_points) {
+    const amount = sendCurrency === 'httn_points' ? parseInt(sendAmount, 10) : parseFloat(sendAmount);
+    const availableBalance = Number(wallet[sendCurrencyMeta[sendCurrency].balanceKey] || 0);
+
+    if (Number.isNaN(amount) || amount <= 0 || amount > availableBalance) {
       toast({
         title: 'Invalid Amount',
-        description: 'Please enter a valid amount',
+        description: `Please enter a valid amount up to ${availableBalance.toLocaleString()} ${sendCurrencyMeta[sendCurrency].unit}`,
         variant: 'destructive',
       });
       return;
@@ -178,13 +212,13 @@ export default function Wallet() {
       const result = await transferWallet({
         recipient_id: recipient.id,
         amount,
-        currency: 'httn_points',
+        currency: sendCurrency,
       });
 
       if (result.success) {
         toast({
           title: 'Transfer complete',
-          description: `Transferred ${amount.toLocaleString()} HTTN Points to @${usernameClean}`,
+          description: `Transferred ${amount.toLocaleString()} ${sendCurrencyMeta[sendCurrency].label} to @${usernameClean}`,
         });
         setSendUsername('');
         setSendAmount('');
@@ -244,6 +278,8 @@ export default function Wallet() {
     }),
     [wallet]
   );
+  const selectedSendMeta = sendCurrencyMeta[sendCurrency];
+  const selectedSendBalance = Number(wallet?.[selectedSendMeta.balanceKey] || 0);
 
   const availablePoints = Math.max((wallet?.httn_points || 0) - (wallet?.pending_rewards || 0), 0);
   const rewardHealth = wallet
@@ -523,6 +559,27 @@ export default function Wallet() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground">Currency</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(Object.keys(sendCurrencyMeta) as SendCurrency[]).map((currency) => {
+                      const meta = sendCurrencyMeta[currency];
+                      const active = sendCurrency === currency;
+                      return (
+                        <Button
+                          key={currency}
+                          type="button"
+                          variant={active ? 'gold' : 'outline'}
+                          className="justify-center"
+                          onClick={() => setSendCurrency(currency)}
+                        >
+                          {meta.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <label className="text-sm text-muted-foreground">Recipient Username</label>
                   <Input
                     placeholder="@username"
@@ -533,7 +590,7 @@ export default function Wallet() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Amount</label>
+                  <label className="text-sm text-muted-foreground">Amount ({selectedSendMeta.unit})</label>
                   <Input
                     type="number"
                     placeholder="Enter amount"
@@ -541,17 +598,18 @@ export default function Wallet() {
                     onChange={(e) => setSendAmount(e.target.value)}
                     className="bg-input"
                     min={1}
-                    max={wallet?.httn_points || 0}
+                    max={selectedSendBalance}
+                    step={sendCurrency === 'httn_points' ? 1 : '0.001'}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Available: {wallet?.httn_points.toLocaleString() || 0} points
+                    Available: {selectedSendBalance.toLocaleString()} {selectedSendMeta.unit}
                   </p>
                 </div>
 
                 <div className="p-4 rounded-lg bg-secondary/50 border border-border flex items-center gap-3">
                   <Shield className="w-5 h-5 text-success" />
                   <p className="text-sm text-muted-foreground">
-                    Transfers are recorded in your Herald wallet history and should stay reserved for trusted users and meaningful support.
+                    Transfers are recorded in your Herald wallet history. Use Points for community value, Tokens for transferable utility, and Espees for commerce-related movement.
                   </p>
                 </div>
 
@@ -563,8 +621,8 @@ export default function Wallet() {
                     sending ||
                     !sendUsername ||
                     !sendAmount ||
-                    parseInt(sendAmount, 10) <= 0 ||
-                    parseInt(sendAmount, 10) > (wallet?.httn_points || 0)
+                    Number(sendAmount) <= 0 ||
+                    Number(sendAmount) > selectedSendBalance
                   }
                 >
                   {sending ? (
@@ -573,7 +631,7 @@ export default function Wallet() {
                       Sending...
                     </>
                   ) : (
-                    'Send Points'
+                    selectedSendMeta.buttonLabel
                   )}
                 </Button>
               </CardContent>

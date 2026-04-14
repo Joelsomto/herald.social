@@ -55,7 +55,7 @@ export const getUserById = async (userId: string) => {
 };
 
 export const getUserByUsername = async (username: string) => {
-  return apiGet<ApiUser>(`/users/by-username/${username}/`);
+  return apiGet<ApiUser>(`/users/by-username/${encodeURIComponent(username)}/`);
 };
 
 export const updateCurrentUser = async (payload: Partial<ApiUser>) => {
@@ -84,6 +84,29 @@ export const uploadAvatar = async (file: File) => {
   }
 
   return response.json() as Promise<{ success: boolean; avatar_url: string }>;
+};
+
+export const uploadCover = async (file: File) => {
+  const formData = new FormData();
+  formData.append('cover', file);
+
+  const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token.replace(/^Bearer\s+/i, '').trim()}`;
+  }
+
+  const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://herald-backend-6i3m.onrender.com/api/v1'}/users/me/cover/`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to upload cover: ${response.statusText}`);
+  }
+
+  return response.json() as Promise<{ success: boolean; cover_url: string }>;
 };
 
 export const deleteCurrentUser = async () => {
@@ -120,7 +143,7 @@ export const getCurrentUserPosts = async (params?: {
   page?: number;
   limit?: number;
   sort?: string;
-  tab?: 'posts' | 'likes' | 'media';
+  tab?: 'posts' | 'likes' | 'media' | 'reposts';
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.page) queryParams.append('page', params.page.toString());
@@ -137,7 +160,7 @@ export const getUserPosts = async (userId: string, params?: {
   page?: number;
   limit?: number;
   sort?: string;
-  tab?: 'posts' | 'likes' | 'media';
+  tab?: 'posts' | 'likes' | 'media' | 'reposts';
 }) => {
   const queryParams = new URLSearchParams();
   if (params?.page) queryParams.append('page', params.page.toString());

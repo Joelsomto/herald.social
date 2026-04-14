@@ -45,6 +45,7 @@ interface Author {
 interface TwitterStylePostProps {
   id: string;
   author: Author;
+  repostContext?: string | null;
   content: string;
   mediaUrl?: string;
   mediaType?: 'image' | 'video';
@@ -82,6 +83,7 @@ function formatTimeAgo(date: Date): string {
 export function TwitterStylePost({
   id,
   author,
+  repostContext,
   content,
   mediaUrl,
   mediaType,
@@ -185,6 +187,12 @@ export function TwitterStylePost({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
+          {repostContext && (
+            <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <Repeat2 className="w-3 h-3" />
+              <span>{repostContext}</span>
+            </div>
+          )}
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-1 flex-wrap">

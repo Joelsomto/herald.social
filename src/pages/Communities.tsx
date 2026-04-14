@@ -46,6 +46,7 @@ interface Community {
   image_url: string | null;
   member_count: number;
   is_private: boolean;
+  is_member?: boolean;
   created_by: string;
 }
 
@@ -69,7 +70,7 @@ const categoryLabels: Record<string, string> = {
 
 
 
-function mapCommunity(row: { id: string; name: string; description: string | null; category: string; image_url: string | null; member_count: number | null; is_private: boolean | null; created_by: string }): Community {
+function mapCommunity(row: { id: string; name: string; description: string | null; category: string; image_url: string | null; member_count: number | null; is_private: boolean | null; is_member?: boolean | null; created_by: string }): Community {
   return {
     id: row.id,
     name: row.name,
@@ -78,6 +79,7 @@ function mapCommunity(row: { id: string; name: string; description: string | nul
     image_url: row.image_url,
     member_count: row.member_count ?? 0,
     is_private: row.is_private ?? false,
+    is_member: row.is_member ?? false,
     created_by: row.created_by,
   };
 }
@@ -118,8 +120,9 @@ export default function Communities() {
   const fetchJoinedCommunities = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await apiGet<any[]>('/users/me/communities/');
-      setJoinedCommunities(Array.isArray(data) ? data.map((c: any) => c.id) : []);
+      const data = await apiGet<any>('/users/me/communities/');
+      const list = Array.isArray(data) ? data : Array.isArray(data?.results) ? data.results : [];
+      setJoinedCommunities(list.map((c: any) => c.id));
     } catch {
       setJoinedCommunities([]);
     }
@@ -204,6 +207,7 @@ export default function Communities() {
         image_url: created.image_url ?? null,
         member_count: created.member_count ?? 1,
         is_private: created.is_private,
+        is_member: true,
         created_by: created.created_by,
       }), ...prev]);
       setJoinedCommunities((prev) => Array.from(new Set([created.id, ...prev])));
@@ -243,7 +247,7 @@ export default function Communities() {
 
   const CommunityCard = ({ community }: { community: Community }) => {
     const Icon = categoryIcons[community.category] || Users;
-    const isJoined = joinedCommunities.includes(community.id);
+    const isJoined = community.is_member || joinedCommunities.includes(community.id) || community.created_by === user?.id;
 
     return (
       <Card className="bg-card border-border hover:border-primary/30 transition-colors">

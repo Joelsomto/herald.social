@@ -4,7 +4,6 @@ import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
 import type { ShareTarget } from '@/components/herald/TwitterStylePost';
 import { WalletPreview } from '@/components/herald/WalletPreview';
 import { TasksPanel } from '@/components/herald/TasksPanel';
-import { MediaUpload } from '@/components/herald/MediaUpload';
 import { FloatingMessageButton } from '@/components/herald/FloatingMessageButton';
 import { TrendingSection } from '@/components/herald/TrendingSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
@@ -13,7 +12,7 @@ import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Sparkles, Image, Smile, Calendar, MapPin, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle, Globe2 } from 'lucide-react';
+import { Sparkles, Image, Smile, Calendar, X, Loader2, RefreshCw, TrendingUp, Clock, Users, Trash2, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentUser, getTopUsers } from '@/lib/api/users';
 import { getCurrentUserWallet } from '@/lib/api/wallets';
@@ -135,6 +134,8 @@ export default function Feed() {
   const postsRef = useRef<Post[]>([]);
   const feedFilterRef = useRef<FeedFilter>('recent');
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -892,14 +893,48 @@ export default function Feed() {
     await Promise.all([fetchPosts(feedFilter, false), fetchUserData(false), fetchTopCreators(false)]);
   };
 
-  const handleComposerMediaUploaded = (url: string, type: string) => {
-    setComposerMediaType(type as 'image' | 'video' | 'reel');
-    setComposerMediaUrl(url);
-  };
-
   const handleComposerMediaRemoved = () => {
     setComposerMediaUrl(null);
     setComposerMediaType(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleInlineFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum file size is 50 MB.', variant: 'destructive' });
+      return;
+    }
+
+    const mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+    setComposerMediaType(mediaType as 'image' | 'video');
+    setIsUploadingMedia(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token.replace(/^Bearer\s+/i, '').trim()}`;
+
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'https://herald-backend-6i3m.onrender.com/api/v1';
+      const response = await fetch(`${baseUrl}/media/upload/`, { method: 'POST', headers, body: formData });
+
+      if (!response.ok) throw new Error(`Upload failed: ${response.statusText}`);
+
+      const result = await response.json();
+      const publicUrl = result.url.startsWith('http') ? result.url : `${baseUrl.replace('/api/v1', '')}${result.url}`;
+      setComposerMediaUrl(publicUrl);
+    } catch (error: any) {
+      toast({ title: 'Upload failed', description: error.message ?? 'An error occurred.', variant: 'destructive' });
+      setComposerMediaType(null);
+    } finally {
+      setIsUploadingMedia(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const insertEmoji = (emoji: string) => {
@@ -1007,159 +1042,155 @@ export default function Feed() {
         </div>
       </header>
 
-      {/* Compose Box */}
-      <div className="border-b border-border px-4 py-3">
+      {/* Compose Box — Twitter/X style */}
+      <div className="border-b border-border px-4 py-4">
         <div className="flex gap-3">
-          {/* Avatar with UIAvatar fallback */}
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt={profile.display_name || ''} className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
-          ) : (
-            <img
-              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.display_name || profile?.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`}
-              alt="User avatar"
-              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-            />
-          )}
+          {/* Avatar */}
+          <img
+            src={
+              profile?.avatar_url ||
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(profile?.display_name || profile?.username || 'User')}&background=d4a847&color=ffffff&bold=true&size=128`
+            }
+            alt={profile?.display_name || 'You'}
+            className="w-10 h-10 rounded-full object-cover flex-shrink-0 mt-1"
+          />
+
           <div className="flex-1 min-w-0">
-            <button
-              type="button"
-              className="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-            >
-              <Globe2 className="h-4 w-4" />
-              Everyone can reply
-            </button>
+            {/* Textarea — plain, auto-grow */}
             <Textarea
               ref={composerRef}
               placeholder="What's happening?"
               value={postContent}
               onChange={(e) => setPostContent(e.target.value)}
-              className="min-h-[120px] max-h-[220px] overflow-y-auto border-none bg-transparent resize-none px-0 py-1 text-[1.45rem] leading-8 placeholder:text-muted-foreground/90 focus-visible:ring-0"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleQuickPost();
+              }}
+              className="w-full border-none bg-transparent resize-none p-0 text-xl leading-relaxed placeholder:text-muted-foreground/60 focus-visible:ring-0 shadow-none overflow-hidden"
             />
-            <div className="mt-3 border-t border-border pt-3">
-              <div className="mb-3 flex items-center gap-2 text-sm font-medium text-primary">
-                <Sparkles className="h-4 w-4" />
-                <span>Share it with your community</span>
+
+            {/* Inline media preview */}
+            {isUploadingMedia && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <span>Uploading…</span>
               </div>
-              {user && composerMediaType && (
-                <div className="mb-4">
-                  <MediaUpload
-                    userId={user.id}
-                    mediaType={composerMediaType}
-                    onMediaUploaded={handleComposerMediaUploaded}
-                    onMediaRemoved={handleComposerMediaRemoved}
-                    currentMediaUrl={composerMediaUrl || undefined}
-                  />
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-full text-primary hover:bg-primary/10"
-                    onClick={() => setComposerMediaType('image')}
-                  >
-                    <Image className="w-5 h-5" />
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/10">
-                        <Smile className="w-5 h-5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56">
-                      <div className="grid grid-cols-4 gap-1 p-2">
-                        {composerEmojiOptions.map((emoji) => (
-                          <button
-                            key={emoji}
-                            type="button"
-                            onClick={() => insertEmoji(emoji)}
-                            className="rounded-lg p-2 text-xl transition-colors hover:bg-secondary"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-full text-muted-foreground hover:bg-secondary"
-                    onClick={() =>
-                      toast({
-                        title: 'Scheduling next',
-                        description: 'Inline scheduling is the next composer feature to wire up.',
-                      })
-                    }
-                  >
-                    <Calendar className="w-5 h-5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-9 w-9 rounded-full text-muted-foreground hover:bg-secondary"
-                    onClick={() =>
-                      toast({
-                        title: 'Location next',
-                        description: 'Location tagging will be added directly to this composer, not as a second form.',
-                      })
-                    }
-                  >
-                    <MapPin className="w-5 h-5" />
-                  </Button>
-                </div>
-                <div className="flex items-center gap-3">
-                  {showCharacterCounter && (
-                    <>
-                      <div className="relative flex h-8 w-8 items-center justify-center">
-                        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 32 32" aria-hidden="true">
-                          <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" strokeOpacity="0.14" strokeWidth="3" />
-                          <circle
-                            cx="16"
-                            cy="16"
-                            r="13"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeDasharray={81.68}
-                            strokeDashoffset={81.68 * (1 - characterProgress)}
-                            className={isPostTooLong ? 'text-destructive' : remainingCharacters <= QUICK_POST_WARNING_THRESHOLD ? 'text-primary' : 'text-primary/70'}
-                          />
-                        </svg>
-                        {remainingCharacters <= QUICK_POST_WARNING_THRESHOLD && (
-                          <span className={`text-[11px] font-semibold ${isPostTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
-                            {remainingCharacters}
-                          </span>
-                        )}
-                      </div>
-                      <div className="h-6 w-px bg-border" />
-                    </>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-primary" />
-                      +25 HTTN
-                    </span>
-                    <Button 
-                      variant="gold" 
-                      className="min-w-24 rounded-full px-5 font-semibold"
-                      onClick={handleQuickPost}
-                      disabled={!postContent.trim() || isPosting || isPostTooLong}
-                    >
-                      {isPosting ? 'Posting...' : 'Post'}
-                    </Button>
-                  </div>
-                </div>
+            )}
+            {composerMediaUrl && !isUploadingMedia && (
+              <div className="mt-3 relative rounded-2xl overflow-hidden border border-border">
+                {composerMediaType === 'video' ? (
+                  <video src={composerMediaUrl} controls className="w-full max-h-72 object-cover" />
+                ) : (
+                  <img src={composerMediaUrl} alt="Attached media" className="w-full max-h-72 object-cover" />
+                )}
+                <button
+                  type="button"
+                  onClick={handleComposerMediaRemoved}
+                  className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-white hover:bg-black/80 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              {isPostTooLong && (
-                <p className="mt-2 text-sm text-destructive">
-                  Posts can be up to {QUICK_POST_LIMIT} characters.
-                </p>
-              )}
+            )}
+
+            {/* Toolbar */}
+            <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
+              {/* Left: media tools */}
+              <div className="flex items-center -ml-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingMedia}
+                  className="p-2 rounded-full text-primary hover:bg-primary/10 transition-colors disabled:opacity-40"
+                  title="Add photo or video"
+                >
+                  <Image className="w-5 h-5" />
+                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button type="button" className="p-2 rounded-full text-primary hover:bg-primary/10 transition-colors">
+                      <Smile className="w-5 h-5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <div className="grid grid-cols-4 gap-1 p-2">
+                      {composerEmojiOptions.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => insertEmoji(emoji)}
+                          className="rounded-lg p-2 text-xl transition-colors hover:bg-secondary"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <button
+                  type="button"
+                  disabled
+                  className="p-2 rounded-full text-muted-foreground/30 cursor-not-allowed"
+                  title="Scheduling coming soon"
+                >
+                  <Calendar className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Right: char count + post button */}
+              <div className="flex items-center gap-3">
+                {showCharacterCounter && (
+                  <>
+                    <div className="relative flex h-8 w-8 items-center justify-center">
+                      <svg className="absolute inset-0 -rotate-90" viewBox="0 0 32 32" aria-hidden="true">
+                        <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" strokeOpacity="0.14" strokeWidth="3" />
+                        <circle
+                          cx="16" cy="16" r="13"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeDasharray={81.68}
+                          strokeDashoffset={81.68 * (1 - characterProgress)}
+                          className={isPostTooLong ? 'text-destructive' : remainingCharacters <= QUICK_POST_WARNING_THRESHOLD ? 'text-primary' : 'text-primary/70'}
+                        />
+                      </svg>
+                      {remainingCharacters <= QUICK_POST_WARNING_THRESHOLD && (
+                        <span className={`text-[11px] font-semibold ${isPostTooLong ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          {remainingCharacters}
+                        </span>
+                      )}
+                    </div>
+                    <div className="h-6 w-px bg-border" />
+                  </>
+                )}
+                <span className="text-xs text-muted-foreground hidden sm:flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-primary" />
+                  +25 HTTN
+                </span>
+                <Button
+                  variant="gold"
+                  className="rounded-full px-5 font-bold"
+                  onClick={handleQuickPost}
+                  disabled={(!postContent.trim() && !composerMediaUrl) || isPosting || isPostTooLong || isUploadingMedia}
+                >
+                  {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post'}
+                </Button>
+              </div>
             </div>
+
+            {isPostTooLong && (
+              <p className="mt-1 text-xs text-destructive">Posts can be up to {QUICK_POST_LIMIT} characters.</p>
+            )}
           </div>
         </div>
+
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={handleInlineFileSelect}
+        />
       </div>
 
       {/* Error Message */}
@@ -1294,4 +1325,3 @@ export default function Feed() {
     </MainLayout>
   );
 }
-

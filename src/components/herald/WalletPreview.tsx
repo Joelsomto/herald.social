@@ -1,5 +1,7 @@
+import { Link } from 'react-router-dom';
 import { Coins, TrendingUp, Sparkles, ArrowRight } from 'lucide-react';
 import { WalletBalance } from '@/types/herald';
+import { POINTS_TO_TOKEN_RATE } from '@/lib/pointsSystem';
 
 interface WalletPreviewProps {
   balance: WalletBalance;
@@ -10,9 +12,9 @@ export function WalletPreview({ balance }: WalletPreviewProps) {
     <div className="herald-card p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-display font-semibold text-foreground">Your Wallet</h3>
-        <button className="text-xs text-primary hover:underline flex items-center gap-1">
+        <Link to="/wallet" className="text-xs text-primary hover:underline flex items-center gap-1">
           View all <ArrowRight className="w-3 h-3" />
-        </button>
+        </Link>
       </div>
 
       <div className="space-y-3">
@@ -70,7 +72,7 @@ export function WalletPreview({ balance }: WalletPreviewProps) {
 
       {/* Conversion hint */}
       <p className="text-xs text-center text-muted-foreground">
-        1000 HTTN Points = 1 Espees
+        {POINTS_TO_TOKEN_RATE.toLocaleString()} HTTN Points = 1 HTTN Token
       </p>
     </div>
   );

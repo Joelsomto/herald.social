@@ -5,20 +5,24 @@ export type Transaction = {
   id: string;
   type: string;
   amount: number;
-  currency: string;
+  currency?: string;
+  token_type?: string;
   description: string | null;
   created_at: string;
 };
 
-export type TransactionsResponse = {
-  data: Transaction[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    total_pages: number;
-  };
-};
+export type TransactionsResponse =
+  | Transaction[]
+  | {
+      results?: Transaction[];
+      data?: Transaction[];
+      pagination?: {
+        page: number;
+        limit: number;
+        total: number;
+        total_pages: number;
+      };
+    };
 
 export const getCurrentUserWallet = async () => {
   return apiGet<Wallet>('/wallets/me/');
@@ -42,6 +46,14 @@ export const getWalletTransactions = async (params?: {
   return apiGet<TransactionsResponse>(`/wallets/me/transactions/${query ? `?${query}` : ''}`);
 };
 
+export const normalizeWalletTransactions = (response: TransactionsResponse | null | undefined): Transaction[] => {
+  if (!response) return [];
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response.results)) return response.results;
+  if (Array.isArray(response.data)) return response.data;
+  return [];
+};
+
 export const convertPointsToTokens = async (payload: {
   amount: number;
 }) => {
@@ -54,7 +66,7 @@ export const convertPointsToTokens = async (payload: {
 export const transferWallet = async (payload: {
   recipient_id: string;
   amount: number;
-  currency: 'httn_points' | 'httn_tokens';
+  currency: 'httn_points' | 'httn_tokens' | 'espees';
 }) => {
   return apiPost<{ success: boolean; message: string }>(
     '/wallets/transfer/',

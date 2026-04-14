@@ -1,30 +1,44 @@
-import { useState, useEffect } from 'react';
-import { MainLayout } from '@/components/herald/MainLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Wallet as WalletIcon, 
-  ArrowUpRight, 
+import { useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
   ArrowDownLeft,
-  Sparkles,
+  ArrowUpRight,
+  CheckCircle2,
+  History,
+  Info,
+  Loader2,
   RefreshCw,
   Send,
-  History,
-  TrendingUp,
   Shield,
-  Loader2,
-  AlertCircle,
-  CheckCircle2
+  Sparkles,
+  TrendingUp,
+  Wallet as WalletIcon,
 } from 'lucide-react';
+
+import { MainLayout } from '@/components/herald/MainLayout';
+import { PointsSystemGuide } from '@/components/herald/PointsSystemGuide';
+import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-import { useToast } from '@/hooks/use-toast';
-import { getCurrentUserWallet, convertPointsToTokens, transferWallet, getWalletTransactions } from '@/lib/api/wallets';
+import {
+  getCurrentUserWallet,
+  getWalletTransactions,
+  normalizeWalletTransactions,
+  transferWallet,
+  convertPointsToTokens,
+} from '@/lib/api/wallets';
 import { searchUsers } from '@/lib/api/users';
 import { ApiError } from '@/lib/apiClient';
-import { VerticalAdBanner, verticalAds } from '@/components/herald/VerticalAdBanner';
+import {
+  balanceDefinitions,
+  MIN_POINTS_CONVERSION,
+  POINTS_TO_TOKEN_RATE,
+} from '@/lib/pointsSystem';
+import { useToast } from '@/hooks/use-toast';
 
 interface WalletData {
   httn_points: number;
@@ -37,17 +51,16 @@ interface Transaction {
   id: string;
   type: string;
   amount: number;
-  token_type: string;
+  token_type?: string;
+  currency?: string;
   description: string | null;
   created_at: string;
 }
 
-const CONVERSION_RATE = 1000; // 1000 points = 1 token
-const MIN_CONVERSION = 100;
-
 export default function Wallet() {
   const { user } = useAuth();
   const { toast } = useToast();
+
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [convertAmount, setConvertAmount] = useState('');
@@ -58,22 +71,24 @@ export default function Wallet() {
   const [loadingTransactions, setLoadingTransactions] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      fetchWallet();
-      fetchTransactions();
-    }
+    if (!user) return;
+    void fetchWallet();
+    void fetchTransactions();
   }, [user]);
 
   const fetchWallet = async () => {
     if (!user) return;
+
     try {
       const data = await getCurrentUserWallet();
-      if (data) setWallet({
-        httn_points: data.httn_points,
-        httn_tokens: Number(data.httn_tokens),
-        espees: Number(data.espees),
-        pending_rewards: data.pending_rewards,
-      });
+      if (data) {
+        setWallet({
+          httn_points: data.httn_points,
+          httn_tokens: Number(data.httn_tokens),
+          espees: Number(data.espees),
+          pending_rewards: data.pending_rewards,
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch wallet:', error);
     }
@@ -81,10 +96,11 @@ export default function Wallet() {
 
   const fetchTransactions = async () => {
     if (!user) return;
+
     setLoadingTransactions(true);
     try {
       const data = await getWalletTransactions();
-      setTransactions(data.results || []);
+      setTransactions(normalizeWalletTransactions(data) as Transaction[]);
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
     } finally {
@@ -94,11 +110,12 @@ export default function Wallet() {
 
   const handleConvertPoints = async () => {
     if (!wallet || !user) return;
-    const amount = parseInt(convertAmount);
-    if (isNaN(amount) || amount < MIN_CONVERSION || amount > wallet.httn_points) {
+
+    const amount = parseInt(convertAmount, 10);
+    if (Number.isNaN(amount) || amount < MIN_POINTS_CONVERSION || amount > wallet.httn_points) {
       toast({
         title: 'Invalid Amount',
-        description: `Please enter a valid amount between ${MIN_CONVERSION} and ${wallet.httn_points.toLocaleString()} points`,
+        description: `Please enter a valid amount between ${MIN_POINTS_CONVERSION} and ${wallet.httn_points.toLocaleString()} points`,
         variant: 'destructive',
       });
       return;
@@ -109,11 +126,12 @@ export default function Wallet() {
       const result = await convertPointsToTokens({ amount });
       if (result.success) {
         toast({
-          title: 'Success',
-          description: `Converted ${amount} points to tokens`,
+          title: 'Conversion complete',
+          description: `Converted ${amount.toLocaleString()} points into HTTN Tokens.`,
         });
         setConvertAmount('');
         await fetchWallet();
+        await fetchTransactions();
       }
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'An error occurred during conversion';
@@ -130,8 +148,8 @@ export default function Wallet() {
   const handleSendHTTN = async () => {
     if (!wallet || !user || !sendUsername || !sendAmount) return;
 
-    const amount = parseInt(sendAmount);
-    if (isNaN(amount) || amount <= 0 || amount > wallet.httn_points) {
+    const amount = parseInt(sendAmount, 10);
+    if (Number.isNaN(amount) || amount <= 0 || amount > wallet.httn_points) {
       toast({
         title: 'Invalid Amount',
         description: 'Please enter a valid amount',
@@ -142,36 +160,36 @@ export default function Wallet() {
 
     setSending(true);
     try {
-      // Look up recipient user ID from username
       const usernameClean = sendUsername.replace(/^@/, '').trim();
       const searchResults = await searchUsers({ q: usernameClean, limit: 5 });
       const recipient = searchResults.find(
-        (u: any) => u.username?.toLowerCase() === usernameClean.toLowerCase()
+        (candidate: any) => candidate.username?.toLowerCase() === usernameClean.toLowerCase()
       );
+
       if (!recipient) {
         toast({
           title: 'User Not Found',
           description: `No user found with username @${usernameClean}`,
           variant: 'destructive',
         });
-        setSending(false);
         return;
       }
 
       const result = await transferWallet({
         recipient_id: recipient.id,
         amount,
-        currency: 'points',
+        currency: 'httn_points',
       });
 
       if (result.success) {
         toast({
-          title: 'Success',
-          description: `Transferred ${amount} HTTN Points to @${usernameClean}`,
+          title: 'Transfer complete',
+          description: `Transferred ${amount.toLocaleString()} HTTN Points to @${usernameClean}`,
         });
         setSendUsername('');
         setSendAmount('');
         await fetchWallet();
+        await fetchTransactions();
       }
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'An error occurred during transfer';
@@ -192,9 +210,8 @@ export default function Wallet() {
       case 'receive':
         return <ArrowDownLeft className="w-5 h-5 text-success" />;
       case 'convert_out':
-        return <RefreshCw className="w-5 h-5 text-primary" />;
       case 'convert_in':
-        return <RefreshCw className="w-5 h-5 text-success" />;
+        return <RefreshCw className="w-5 h-5 text-primary" />;
       case 'earned':
         return <Sparkles className="w-5 h-5 text-primary" />;
       default:
@@ -214,9 +231,24 @@ export default function Wallet() {
     return date.toLocaleDateString();
   };
 
-  const tokensPreview = convertAmount && parseInt(convertAmount) >= MIN_CONVERSION
-    ? (parseInt(convertAmount) / CONVERSION_RATE).toFixed(3)
-    : '0.000';
+  const tokensPreview =
+    convertAmount && parseInt(convertAmount, 10) >= MIN_POINTS_CONVERSION
+      ? (parseInt(convertAmount, 10) / POINTS_TO_TOKEN_RATE).toFixed(3)
+      : '0.000';
+
+  const balancesByKey = useMemo(
+    () => ({
+      httn_points: wallet?.httn_points || 0,
+      httn_tokens: Number(wallet?.httn_tokens || 0),
+      espees: Number(wallet?.espees || 0),
+    }),
+    [wallet]
+  );
+
+  const availablePoints = Math.max((wallet?.httn_points || 0) - (wallet?.pending_rewards || 0), 0);
+  const rewardHealth = wallet
+    ? Math.min((availablePoints / Math.max(wallet.httn_points || 1, 1)) * 100, 100)
+    : 0;
 
   const rightSidebar = (
     <div className="space-y-4">
@@ -227,64 +259,137 @@ export default function Wallet() {
   return (
     <MainLayout rightSidebar={rightSidebar}>
       <div className="p-6 space-y-6">
-        {/* Header */}
         <div>
-          <h1 className="font-display font-bold text-2xl text-foreground">Wallet</h1>
-          <p className="text-muted-foreground">Manage your HTTN Points, Tokens, and Espees</p>
+          <h1 className="font-display font-bold text-2xl text-foreground">Wallet & Rewards</h1>
+          <p className="text-muted-foreground">
+            Track what you have earned, what is still pending review, and how Herald turns healthy participation into value.
+          </p>
         </div>
 
-        {/* Balance Cards */}
         <div className="grid md:grid-cols-3 gap-4">
-          <Card className="bg-gradient-to-br from-primary/20 to-primary/5 border-primary/20">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-                  <Sparkles className="w-6 h-6 text-primary" />
+          {balanceDefinitions.map((definition) => {
+            const value = balancesByKey[definition.key];
+            const formattedValue =
+              definition.key === 'httn_points'
+                ? Number(value).toLocaleString()
+                : definition.key === 'httn_tokens'
+                  ? Number(value).toFixed(2)
+                  : `₦${Number(value).toLocaleString()}`;
+            const Icon =
+              definition.key === 'httn_points'
+                ? Sparkles
+                : definition.key === 'httn_tokens'
+                  ? WalletIcon
+                  : TrendingUp;
+
+            return (
+              <Card
+                key={definition.key}
+                className={
+                  definition.key === 'httn_points'
+                    ? 'bg-gradient-to-br from-primary/20 to-primary/5 border-primary/20'
+                    : 'bg-card border-border'
+                }
+              >
+                <CardContent className="p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                        definition.key === 'httn_points' ? 'bg-primary/20' : 'bg-secondary'
+                      }`}
+                    >
+                      <Icon
+                        className={`w-6 h-6 ${
+                          definition.key === 'espees' ? 'text-success' : 'text-primary'
+                        }`}
+                      />
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {definition.badge}
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <p
+                      className={`text-3xl font-display font-bold ${
+                        definition.key === 'httn_points' ? 'gold-text' : 'text-foreground'
+                      }`}
+                    >
+                      {formattedValue}
+                    </p>
+                    <p className="text-sm text-muted-foreground">{definition.name}</p>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">{definition.summary}</p>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <Card className="bg-card border-border">
+            <CardHeader>
+              <CardTitle className="font-display flex items-center gap-2">
+                <Shield className="w-5 h-5 text-primary" />
+                Reward Settlement
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                  <p className="text-sm text-muted-foreground">Available points</p>
+                  <p className="mt-2 font-display text-2xl font-bold text-foreground">
+                    {availablePoints.toLocaleString()}
+                  </p>
                 </div>
-                <Badge variant="outline" className="text-xs">Off-chain</Badge>
+                <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                  <p className="text-sm text-muted-foreground">Pending review</p>
+                  <p className="mt-2 font-display text-2xl font-bold gold-text">
+                    {(wallet?.pending_rewards || 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                  <p className="text-sm text-muted-foreground">Reward health</p>
+                  <p className="mt-2 font-display text-2xl font-bold text-foreground">
+                    {rewardHealth.toFixed(0)}%
+                  </p>
+                </div>
               </div>
-              <p className="text-3xl font-display font-bold gold-text">
-                {wallet?.httn_points.toLocaleString() || '0'}
-              </p>
-              <p className="text-sm text-muted-foreground">HTTN Points</p>
+
+              <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4 text-sm text-muted-foreground">
+                Pending rewards are Herald&apos;s safety buffer. We award points for good participation, but we do not
+                release everything instantly. That gives us room to filter spam, repeated actions, suspicious loops,
+                and reversed activity before rewards become fully spendable.
+              </div>
             </CardContent>
           </Card>
 
           <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center">
-                  <WalletIcon className="w-6 h-6 text-primary" />
-                </div>
-                <Badge variant="outline" className="text-xs">On-chain</Badge>
+            <CardHeader>
+              <CardTitle className="font-display flex items-center gap-2">
+                <Info className="w-5 h-5 text-primary" />
+                Wallet Rules
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                Points are your earned participation balance. Herald should reward contribution quality, not raw tapping.
               </div>
-              <p className="text-3xl font-display font-bold text-foreground">
-                {Number(wallet?.httn_tokens || 0).toFixed(2)}
-              </p>
-              <p className="text-sm text-muted-foreground">HTTN Tokens</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-secondary flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-success" />
-                </div>
-                <Badge variant="outline" className="text-xs">Redeemable</Badge>
+              <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                {POINTS_TO_TOKEN_RATE.toLocaleString()} HTTN Points = 1 HTTN Token. Smaller conversions are blocked to
+                reduce micro-farming and noisy ledger activity.
               </div>
-              <p className="text-3xl font-display font-bold text-foreground">
-                ₦{Number(wallet?.espees || 0).toLocaleString()}
-              </p>
-              <p className="text-sm text-muted-foreground">Espees</p>
+              <div className="rounded-2xl border border-border bg-secondary/20 p-4">
+                Espees are your commerce balance for store and cause flows, not the default reward for everyday social actions.
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Pending Rewards */}
         {wallet && wallet.pending_rewards > 0 && (
           <Card className="bg-primary/10 border-primary/20">
-            <CardContent className="p-4 flex items-center justify-between">
+            <CardContent className="p-4 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
                   <Sparkles className="w-5 h-5 text-primary" />
@@ -293,18 +398,28 @@ export default function Wallet() {
                   <p className="font-display font-semibold text-foreground">
                     {wallet.pending_rewards} HTTN Points Pending
                   </p>
-                  <p className="text-sm text-muted-foreground">Complete tasks to claim</p>
+                  <p className="text-sm text-muted-foreground">
+                    These rewards are waiting on quality, trust, or settlement checks.
+                  </p>
                 </div>
               </div>
-              <Button variant="gold" size="sm">
-                View Tasks
+              <Button
+                variant="gold"
+                size="sm"
+                onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })}
+              >
+                Review Rules
               </Button>
             </CardContent>
           </Card>
         )}
 
-        <Tabs defaultValue="convert" className="w-full">
+        <Tabs defaultValue="earn" className="w-full">
           <TabsList>
+            <TabsTrigger value="earn" className="gap-2">
+              <Sparkles className="w-4 h-4" />
+              Earn
+            </TabsTrigger>
             <TabsTrigger value="convert" className="gap-2">
               <RefreshCw className="w-4 h-4" />
               Convert
@@ -319,6 +434,10 @@ export default function Wallet() {
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="earn" className="mt-6">
+            <PointsSystemGuide />
+          </TabsContent>
+
           <TabsContent value="convert" className="mt-6">
             <Card className="bg-card border-border">
               <CardHeader>
@@ -331,7 +450,7 @@ export default function Wallet() {
                 <div className="p-4 rounded-lg bg-secondary/50 border border-border">
                   <p className="text-sm text-muted-foreground mb-2">Conversion Rate</p>
                   <p className="font-display font-semibold text-foreground">
-                    {CONVERSION_RATE.toLocaleString()} HTTN Points = 1 HTTN Token
+                    {POINTS_TO_TOKEN_RATE.toLocaleString()} HTTN Points = 1 HTTN Token
                   </p>
                 </div>
 
@@ -343,27 +462,25 @@ export default function Wallet() {
                     value={convertAmount}
                     onChange={(e) => setConvertAmount(e.target.value)}
                     className="bg-input"
-                    min={MIN_CONVERSION}
+                    min={MIN_POINTS_CONVERSION}
                     max={wallet?.httn_points || 0}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Minimum: {MIN_CONVERSION} points | Available: {wallet?.httn_points.toLocaleString() || 0} points
+                    Minimum: {MIN_POINTS_CONVERSION} points | Available: {wallet?.httn_points.toLocaleString() || 0} points
                   </p>
                 </div>
 
-                {convertAmount && parseInt(convertAmount) >= MIN_CONVERSION && (
+                {convertAmount && parseInt(convertAmount, 10) >= MIN_POINTS_CONVERSION && (
                   <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
                     <div className="flex items-center gap-2 mb-2">
                       <CheckCircle2 className="w-4 h-4 text-success" />
                       <p className="text-sm text-muted-foreground">You will receive</p>
                     </div>
-                    <p className="font-display font-bold text-xl gold-text">
-                      {tokensPreview} HTTN Tokens
-                    </p>
+                    <p className="font-display font-bold text-xl gold-text">{tokensPreview} HTTN Tokens</p>
                   </div>
                 )}
 
-                {convertAmount && parseInt(convertAmount) > (wallet?.httn_points || 0) && (
+                {convertAmount && parseInt(convertAmount, 10) > (wallet?.httn_points || 0) && (
                   <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
                     <div className="flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 text-destructive" />
@@ -372,15 +489,15 @@ export default function Wallet() {
                   </div>
                 )}
 
-                <Button 
-                  variant="gold" 
+                <Button
+                  variant="gold"
                   className="w-full"
                   onClick={handleConvertPoints}
                   disabled={
-                    converting || 
-                    !convertAmount || 
-                    parseInt(convertAmount) < MIN_CONVERSION ||
-                    parseInt(convertAmount) > (wallet?.httn_points || 0)
+                    converting ||
+                    !convertAmount ||
+                    parseInt(convertAmount, 10) < MIN_POINTS_CONVERSION ||
+                    parseInt(convertAmount, 10) > (wallet?.httn_points || 0)
                   }
                 >
                   {converting ? (
@@ -401,7 +518,7 @@ export default function Wallet() {
               <CardHeader>
                 <CardTitle className="font-display flex items-center gap-2">
                   <Send className="w-5 h-5 text-primary" />
-                  Send HTTN
+                  Send HTTN Points
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -416,7 +533,7 @@ export default function Wallet() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm text-muted-foreground">Amount (HTTN Points)</label>
+                  <label className="text-sm text-muted-foreground">Amount</label>
                   <Input
                     type="number"
                     placeholder="Enter amount"
@@ -434,20 +551,20 @@ export default function Wallet() {
                 <div className="p-4 rounded-lg bg-secondary/50 border border-border flex items-center gap-3">
                   <Shield className="w-5 h-5 text-success" />
                   <p className="text-sm text-muted-foreground">
-                    Transactions are secured and verified on-chain
+                    Transfers are recorded in your Herald wallet history and should stay reserved for trusted users and meaningful support.
                   </p>
                 </div>
 
-                <Button 
-                  variant="gold" 
+                <Button
+                  variant="gold"
                   className="w-full"
                   onClick={handleSendHTTN}
                   disabled={
-                    sending || 
-                    !sendUsername || 
+                    sending ||
+                    !sendUsername ||
                     !sendAmount ||
-                    parseInt(sendAmount) <= 0 ||
-                    parseInt(sendAmount) > (wallet?.httn_points || 0)
+                    parseInt(sendAmount, 10) <= 0 ||
+                    parseInt(sendAmount, 10) > (wallet?.httn_points || 0)
                   }
                 >
                   {sending ? (
@@ -456,7 +573,7 @@ export default function Wallet() {
                       Sending...
                     </>
                   ) : (
-                    'Send HTTN'
+                    'Send Points'
                   )}
                 </Button>
               </CardContent>
@@ -483,35 +600,46 @@ export default function Wallet() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {transactions.map((tx) => (
-                      <div 
-                        key={tx.id} 
-                        className="flex items-center justify-between p-3 rounded-lg bg-secondary/30"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            tx.amount > 0 ? 'bg-success/20' : 
-                            tx.type === 'convert_out' ? 'bg-primary/20' : 'bg-destructive/20'
-                          }`}>
-                            {getTransactionIcon(tx.type)}
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{tx.description}</p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs text-muted-foreground">{formatDate(tx.created_at)}</p>
-                              <Badge variant="outline" className="text-xs">
-                                {tx.token_type}
-                              </Badge>
+                    {transactions.map((tx) => {
+                      const tokenType = tx.token_type || tx.currency || 'points';
+                      return (
+                        <div
+                          key={tx.id}
+                          className="flex items-center justify-between p-3 rounded-lg bg-secondary/30"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                                tx.amount > 0
+                                  ? 'bg-success/20'
+                                  : tx.type === 'convert_out'
+                                    ? 'bg-primary/20'
+                                    : 'bg-destructive/20'
+                              }`}
+                            >
+                              {getTransactionIcon(tx.type)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-foreground">{tx.description || 'Wallet activity'}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-xs text-muted-foreground">{formatDate(tx.created_at)}</p>
+                                <Badge variant="outline" className="text-xs">
+                                  {tokenType}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
+                          <span
+                            className={`font-display font-semibold ${
+                              tx.amount > 0 ? 'text-success' : 'text-foreground'
+                            }`}
+                          >
+                            {tx.amount > 0 ? '+' : ''}
+                            {tx.amount.toLocaleString()} {tokenType === 'tokens' ? 'HTTN' : 'pts'}
+                          </span>
                         </div>
-                        <span className={`font-display font-semibold ${
-                          tx.amount > 0 ? 'text-success' : 'text-foreground'
-                        }`}>
-                          {tx.amount > 0 ? '+' : ''}{tx.amount.toLocaleString()} {tx.token_type === 'tokens' ? 'HTTN' : 'pts'}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

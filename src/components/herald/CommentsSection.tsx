@@ -186,6 +186,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
           />
           <div className="flex-1 flex gap-2">
             <Textarea
+              id="reply-composer"
               placeholder="Post your reply..."
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
@@ -206,7 +207,7 @@ export function CommentsSection({ postId, isOpen = true, onClose, onCommentAdded
       <div className="space-y-4">
         {comments.length === 0 ? (
           <p className="text-center text-muted-foreground text-sm py-4">
-            No comments yet. Be the first to reply!
+            No replies yet. Be the first to reply.
           </p>
         ) : (
           comments.map(comment => (

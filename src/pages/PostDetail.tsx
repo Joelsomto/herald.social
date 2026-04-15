@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  BadgeCheck,
+  BarChart2,
+  Bookmark,
+  Heart,
+  MessageCircle,
+  RefreshCw,
+  Repeat2,
+  Share2,
+} from 'lucide-react';
 import { MainLayout } from '@/components/herald/MainLayout';
-import { TwitterStylePost } from '@/components/herald/TwitterStylePost';
-import type { ShareTarget } from '@/components/herald/TwitterStylePost';
+import { CommentsSection } from '@/components/herald/CommentsSection';
 import { RightSidebarWithAds } from '@/components/herald/RightSidebarWithAds';
 import { LiveSection } from '@/components/herald/LiveSection';
 import { NewsSection } from '@/components/herald/NewsSection';
@@ -11,7 +21,7 @@ import { TrendingSection } from '@/components/herald/TrendingSection';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
-import { likePost, unlikePost, sharePost, bookmarkPost, unbookmarkPost, getPost } from '@/lib/api/posts';
+import { bookmarkPost, getPost, likePost, sharePost, unlikePost, unbookmarkPost } from '@/lib/api/posts';
 import { ApiError } from '@/lib/apiClient';
 
 const INTERACTION_SYNC_INTERVAL_MS = 5_000;
@@ -29,11 +39,13 @@ interface Post {
   id: string;
   content: string;
   media_url: string | null;
+  media_urls?: string[];
   media_type: string | null;
   likes_count: number;
   comments_count: number;
   shares_count: number;
   bookmarks_count: number;
+  views_count?: number;
   httn_earned: number;
   created_at: string;
   author: Profile;
@@ -41,6 +53,7 @@ interface Post {
   isLiked?: boolean;
   isReposted?: boolean;
   isBookmarked?: boolean;
+  repost_context?: string | null;
 }
 
 function mapPost(raw: any): Post {
@@ -62,8 +75,11 @@ function mapPost(raw: any): Post {
     },
     author_id: typeof raw.author_id === 'string' ? raw.author_id : raw.author_id?.id || raw.author?.id || '',
     media_url: raw.media_url || null,
+    media_urls: Array.isArray(raw.media_urls) ? raw.media_urls : raw.media_url ? [raw.media_url] : [],
     media_type: raw.media_type || null,
     bookmarks_count: raw.bookmarks_count ?? 0,
+    views_count: raw.views_count ?? 0,
+    repost_context: raw.repost_context ?? null,
     isLiked: raw.is_liked ?? false,
     isReposted: raw.is_reposted ?? false,
     isBookmarked: raw.is_bookmarked ?? false,
@@ -87,6 +103,42 @@ function getErrorDescription(error: unknown, fallback: string) {
 
   if (error instanceof Error && error.message) return error.message;
   return fallback;
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
+function formatRelativeTime(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatAbsoluteMeta(createdAt: Date) {
+  const time = createdAt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const date = createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${time} · ${date}`;
+}
+
+function normaliseMediaUrls(mediaUrls?: string[] | null, mediaUrl?: string | null) {
+  if (Array.isArray(mediaUrls) && mediaUrls.length > 0) {
+    return mediaUrls.filter(Boolean);
+  }
+  return mediaUrl ? [mediaUrl] : [];
+}
+
+function isImageMedia(mediaUrl?: string | null, mediaType?: string | null) {
+  if (!mediaUrl) return false;
+  if (mediaType?.startsWith('image')) return true;
+  if (mediaType?.startsWith('video')) return false;
+  return /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(mediaUrl);
 }
 
 export default function PostDetail() {
@@ -135,12 +187,13 @@ export default function PostDetail() {
           comments_count: latestPost.comments_count,
           shares_count: latestPost.shares_count,
           bookmarks_count: latestPost.bookmarks_count,
+          views_count: latestPost.views_count,
           isLiked: latestPost.isLiked,
           isReposted: latestPost.isReposted,
           isBookmarked: latestPost.isBookmarked,
         } : prev);
-      } catch (error) {
-        console.error('Error refreshing post detail interactions:', error);
+      } catch (syncError) {
+        console.error('Error refreshing post detail interactions:', syncError);
       }
     };
 
@@ -172,141 +225,112 @@ export default function PostDetail() {
     return false;
   };
 
-  const handleLike = async (id: string) => {
-    if (!post || id !== post.id || interacting.has(id) || !requireAuth()) return;
+  const handleLike = async () => {
+    if (!post || interacting.has(post.id) || !requireAuth()) return;
 
     const wasLiked = post.isLiked ?? false;
-    const previousLikes = post.likes_count;
+    const previousPost = { ...post };
 
-    setInteracting(prev => new Set(prev).add(id));
-    setPost(prev => prev ? {
+    setInteracting((prev) => new Set(prev).add(post.id));
+    setPost((prev) => prev ? {
       ...prev,
       isLiked: !wasLiked,
-      likes_count: wasLiked ? prev.likes_count - 1 : prev.likes_count + 1,
+      likes_count: wasLiked ? Math.max(0, prev.likes_count - 1) : prev.likes_count + 1,
     } : prev);
 
     try {
-      wasLiked ? await unlikePost(id) : await likePost(id);
+      const result = wasLiked ? await unlikePost(post.id) : await likePost(post.id);
+      if (result?.likes_count !== undefined) {
+        setPost((prev) => prev ? { ...prev, likes_count: result.likes_count } : prev);
+      }
     } catch (err) {
       console.error('Error toggling like on post detail:', err);
-      setPost(prev => prev ? { ...prev, isLiked: wasLiked, likes_count: previousLikes } : prev);
+      setPost(previousPost);
       toast({
         title: 'Error',
         description: getErrorDescription(err, 'Failed to update like. Please try again.'),
         variant: 'destructive',
       });
     } finally {
-      setInteracting(prev => {
+      setInteracting((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(post.id);
         return next;
       });
     }
   };
 
-  const handleRepost = async (id: string) => {
-    if (!post || id !== post.id || interacting.has(id) || post.isReposted || !requireAuth()) return;
+  const handleRepost = async () => {
+    if (!post || interacting.has(post.id) || post.isReposted || !requireAuth()) return;
 
-    const previousShares = post.shares_count;
+    const previousPost = { ...post };
 
-    setInteracting(prev => new Set(prev).add(id));
-    setPost(prev => prev ? { ...prev, isReposted: true, shares_count: prev.shares_count + 1 } : prev);
+    setInteracting((prev) => new Set(prev).add(post.id));
+    setPost((prev) => prev ? { ...prev, isReposted: true, shares_count: prev.shares_count + 1 } : prev);
 
     try {
-      await sharePost(id);
+      const result = await sharePost(post.id);
+      if (result?.shares_count !== undefined) {
+        setPost((prev) => prev ? { ...prev, shares_count: result.shares_count } : prev);
+      }
     } catch (err) {
       console.error('Error reposting on post detail:', err);
-      setPost(prev => prev ? { ...prev, isReposted: false, shares_count: previousShares } : prev);
+      setPost(previousPost);
       toast({
         title: 'Error',
         description: getErrorDescription(err, 'Failed to repost. Please try again.'),
         variant: 'destructive',
       });
     } finally {
-      setInteracting(prev => {
+      setInteracting((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(post.id);
         return next;
       });
     }
   };
 
-  const handleBookmark = async (id: string) => {
-    if (!post || id !== post.id || interacting.has(id) || !requireAuth()) return;
+  const handleBookmark = async () => {
+    if (!post || interacting.has(post.id) || !requireAuth()) return;
 
     const wasBookmarked = post.isBookmarked ?? false;
+    const previousPost = { ...post };
 
-    setInteracting(prev => new Set(prev).add(id));
-    setPost(prev => prev ? {
+    setInteracting((prev) => new Set(prev).add(post.id));
+    setPost((prev) => prev ? {
       ...prev,
       isBookmarked: !wasBookmarked,
       bookmarks_count: wasBookmarked ? Math.max(0, prev.bookmarks_count - 1) : prev.bookmarks_count + 1,
     } : prev);
 
     try {
-      if (wasBookmarked) {
-        await unbookmarkPost(id);
-        toast({ title: 'Removed', description: 'Post removed from bookmarks.' });
-      } else {
-        await bookmarkPost(id);
-        toast({ title: 'Saved', description: 'Post added to your bookmarks.' });
+      const result = wasBookmarked ? await unbookmarkPost(post.id) : await bookmarkPost(post.id);
+      if (result?.bookmarks_count !== undefined) {
+        setPost((prev) => prev ? { ...prev, bookmarks_count: result.bookmarks_count } : prev);
       }
     } catch (err) {
       console.error('Error bookmarking post detail:', err);
-      setPost(prev => prev ? { ...prev, isBookmarked: wasBookmarked, bookmarks_count: post.bookmarks_count } : prev);
+      setPost(previousPost);
       toast({
         title: 'Error',
         description: getErrorDescription(err, 'Failed to bookmark. Please try again.'),
         variant: 'destructive',
       });
     } finally {
-      setInteracting(prev => {
+      setInteracting((prev) => {
         const next = new Set(prev);
-        next.delete(id);
+        next.delete(post.id);
         return next;
       });
     }
   };
 
-  const handleShare = async (id: string, target: ShareTarget = 'native') => {
-    if (!post || id !== post.id) return;
+  const handleShare = async () => {
+    if (!post) return;
 
-    const shareUrl = `${window.location.origin}/post/${id}`;
+    const shareUrl = `${window.location.origin}/post/${post.id}`;
     const snippet = post.content.length > 100 ? `${post.content.substring(0, 100)}...` : post.content;
     const shareText = `${post.author.display_name}: ${snippet}`;
-    const encodedUrl = encodeURIComponent(shareUrl);
-    const encodedText = encodeURIComponent(shareText);
-
-    const socialUrls: Record<Exclude<ShareTarget, 'copy' | 'native'>, string> = {
-      whatsapp: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
-      x: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
-      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
-      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
-      telegram: `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`,
-    };
-
-    if (target === 'copy') {
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-        toast({
-          title: 'Link copied',
-          description: 'Post link copied to clipboard.',
-        });
-      } catch (err) {
-        console.error('Error copying post link:', err);
-        toast({
-          title: 'Error',
-          description: 'Unable to copy the post link.',
-          variant: 'destructive',
-        });
-      }
-      return;
-    }
-
-    if (target !== 'native') {
-      window.open(socialUrls[target], '_blank', 'noopener,noreferrer');
-      return;
-    }
 
     if (!navigator.share) {
       try {
@@ -344,9 +368,8 @@ export default function PostDetail() {
     }
   };
 
-  const handleCommentAdded = (id: string, countDelta = 1) => {
-    if (!post || id !== post.id) return;
-    setPost(prev => prev ? { ...prev, comments_count: prev.comments_count + countDelta } : prev);
+  const handleCommentAdded = (countDelta = 1) => {
+    setPost((prev) => prev ? { ...prev, comments_count: prev.comments_count + countDelta } : prev);
   };
 
   const rightSidebar = (
@@ -356,6 +379,11 @@ export default function PostDetail() {
       <TrendingSection />
     </RightSidebarWithAds>
   );
+
+  const mediaUrls = useMemo(() => normaliseMediaUrls(post?.media_urls, post?.media_url), [post?.media_url, post?.media_urls]);
+  const primaryMediaUrl = mediaUrls[0] ?? null;
+  const multipleImages = isImageMedia(primaryMediaUrl, post?.media_type ?? null) && mediaUrls.length > 1;
+  const createdAt = post ? new Date(post.created_at) : null;
 
   if (loading) {
     return (
@@ -367,7 +395,7 @@ export default function PostDetail() {
     );
   }
 
-  if (error || !post) {
+  if (error || !post || !createdAt) {
     return (
       <MainLayout rightSidebar={rightSidebar} hideMobileNav={!user}>
         <div className="p-8 text-center">
@@ -396,47 +424,117 @@ export default function PostDetail() {
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(-1)}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="font-display text-lg font-bold text-foreground">Post</h1>
-            <p className="text-xs text-muted-foreground">Shared link preview</p>
-          </div>
+          <h1 className="font-display text-lg font-bold text-foreground">Post</h1>
         </div>
       </header>
 
       {!user && (
         <div className="border-b border-border bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
-          You can view this post now. Sign in to like, repost, bookmark, or reply.
+          You can read this post now. Sign in to reply, repost, like, or bookmark.
         </div>
       )}
 
-      <TwitterStylePost
-        id={post.id}
-        author={{
-          id: post.author.id || post.author_id,
-          displayName: post.author.display_name,
-          username: post.author.username,
-          avatar: post.author.avatar_url,
-          isVerified: post.author.is_verified,
-          isGoldVerified: post.author.is_verified && post.author.is_creator,
-        }}
-        content={post.content}
-        mediaUrl={post.media_url || undefined}
-        mediaType={post.media_type === 'video' ? 'video' : 'image'}
-        likes={post.likes_count}
-        comments={post.comments_count}
-        reposts={post.shares_count}
-        bookmarks={post.bookmarks_count}
-        httnEarned={post.httn_earned}
-        createdAt={new Date(post.created_at)}
-        isLiked={post.isLiked}
-        isReposted={post.isReposted}
-        isBookmarked={post.isBookmarked}
-        onLike={handleLike}
-        onRepost={handleRepost}
-        onBookmark={handleBookmark}
-        onShare={handleShare}
-        onCommentAdded={handleCommentAdded}
-      />
+      <article className="border-b border-border px-4 py-4">
+        {post.repost_context && (
+          <div className="mb-2 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+            <Repeat2 className="h-3 w-3" />
+            <span>{post.repost_context}</span>
+          </div>
+        )}
+
+        <div className="flex gap-3">
+          <Link to={`/user/${post.author.username}`} className="flex-shrink-0">
+            <img
+              src={post.author.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.display_name || post.author.username || 'User')}&background=E0E7FF&color=3730A3&bold=true`}
+              alt={post.author.display_name}
+              className="h-10 w-10 rounded-full object-cover"
+            />
+          </Link>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1">
+              <Link to={`/user/${post.author.username}`} className="font-semibold text-foreground hover:underline">
+                {post.author.display_name}
+              </Link>
+              {post.author.is_verified && (
+                <BadgeCheck className={`h-4 w-4 ${post.author.is_creator ? 'text-primary fill-primary/20' : 'text-blue-400'}`} />
+              )}
+              <Link to={`/user/${post.author.username}`} className="text-muted-foreground hover:underline">
+                @{post.author.username}
+              </Link>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground">{formatRelativeTime(createdAt)}</span>
+            </div>
+
+            <div className="mt-3 whitespace-pre-wrap text-[22px] leading-8 text-foreground">
+              {post.content}
+            </div>
+
+            {multipleImages && (
+              <div className="mt-4 grid grid-cols-2 gap-0.5 overflow-hidden rounded-2xl border border-border">
+                {mediaUrls.slice(0, 4).map((uri, index) => (
+                  <img
+                    key={`${post.id}-detail-media-${index}-${uri}`}
+                    src={uri}
+                    alt=""
+                    className="h-56 w-full object-cover"
+                  />
+                ))}
+              </div>
+            )}
+
+            {!multipleImages && primaryMediaUrl && (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-border">
+                {post.media_type === 'video' ? (
+                  <video src={primaryMediaUrl} controls className="max-h-[520px] w-full object-cover" />
+                ) : (
+                  <img src={primaryMediaUrl} alt="" className="max-h-[520px] w-full object-cover" />
+                )}
+              </div>
+            )}
+
+            <div className="mt-4 border-b border-border pb-3 text-sm text-muted-foreground">
+              <span>{formatAbsoluteMeta(createdAt)}</span>
+              <span className="px-2">·</span>
+              <span>{formatCount(post.views_count ?? 0)} Views</span>
+            </div>
+
+            <div className="flex flex-wrap gap-4 border-b border-border py-3 text-sm text-muted-foreground">
+              <span><span className="font-semibold text-foreground">{formatCount(post.comments_count)}</span> Replies</span>
+              <span><span className="font-semibold text-foreground">{formatCount(post.shares_count)}</span> Reposts</span>
+              <span><span className="font-semibold text-foreground">{formatCount(post.likes_count)}</span> Likes</span>
+              <span><span className="font-semibold text-foreground">{formatCount(post.bookmarks_count)}</span> Bookmarks</span>
+            </div>
+
+            <div className="flex max-w-md items-center justify-between border-b border-border py-1">
+              <button onClick={() => document.getElementById('reply-composer')?.focus()} className="rounded-full p-3 text-muted-foreground transition-colors hover:bg-blue-400/10 hover:text-blue-400">
+                <MessageCircle className="h-5 w-5" />
+              </button>
+              <button onClick={handleRepost} className={`rounded-full p-3 transition-colors hover:bg-green-400/10 ${post.isReposted ? 'text-green-400' : 'text-muted-foreground hover:text-green-400'}`}>
+                <Repeat2 className="h-5 w-5" />
+              </button>
+              <button onClick={handleLike} className={`rounded-full p-3 transition-colors hover:bg-rose-500/10 ${post.isLiked ? 'text-rose-500' : 'text-muted-foreground hover:text-rose-500'}`}>
+                <Heart className={`h-5 w-5 ${post.isLiked ? 'fill-current' : ''}`} />
+              </button>
+              <button onClick={handleBookmark} className={`rounded-full p-3 transition-colors hover:bg-primary/10 ${post.isBookmarked ? 'text-primary' : 'text-muted-foreground hover:text-primary'}`}>
+                <Bookmark className={`h-5 w-5 ${post.isBookmarked ? 'fill-current' : ''}`} />
+              </button>
+              <button onClick={handleShare} className="rounded-full p-3 text-muted-foreground transition-colors hover:bg-blue-400/10 hover:text-blue-400">
+                <Share2 className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <section className="border-b border-border px-4 py-3">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <BarChart2 className="h-4 w-4" />
+          <span>Conversation</span>
+        </div>
+      </section>
+
+      <CommentsSection postId={post.id} onCommentAdded={handleCommentAdded} />
     </MainLayout>
   );
 }

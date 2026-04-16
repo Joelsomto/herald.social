@@ -38,6 +38,7 @@ interface NewsArticle {
   image_url: string | null;
   external_url: string | null;
   published_at: string;
+  views_count?: number;
 }
 
 const sourceIcons: Record<string, React.ElementType> = {
@@ -167,6 +168,8 @@ export default function News() {
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Clock className="w-3 h-3" />
               {formatDistanceToNow(new Date(article.published_at), { addSuffix: true })}
+              <span>·</span>
+              <span>{(article.views_count ?? 0).toLocaleString()} views</span>
             </div>
             <div className="flex items-center gap-1">
               <Button

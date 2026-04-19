@@ -449,6 +449,7 @@ export default function UserProfile() {
                 comments={post.comments_count}
                 reposts={post.shares_count}
                 bookmarks={post.bookmarks_count ?? 0}
+                views={post.views_count ?? 0}
                 httnEarned={post.httn_earned}
                 createdAt={new Date(post.created_at)}
                 repostContext={post.profile_reposted ? `${profile.display_name || profile.username || 'User'} reposted` : null}
@@ -523,6 +524,7 @@ export default function UserProfile() {
                 comments={post.comments_count}
                 reposts={post.shares_count}
                 bookmarks={post.bookmarks_count}
+                views={post.views_count ?? 0}
                 httnEarned={post.httn_earned}
                 createdAt={new Date(post.created_at)}
                 isLiked={post.isLiked}

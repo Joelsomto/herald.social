@@ -10,6 +10,7 @@ export type Post = {
   comments_count: number;
   shares_count: number;
   bookmarks_count?: number;
+  views_count?: number;
   httn_earned: number;
   created_at: string;
   updated_at: string;

@@ -701,6 +701,7 @@ export default function Profile() {
                   comments={post.comments_count}
                   reposts={post.shares_count}
                   bookmarks={post.bookmarks_count ?? 0}
+                  views={post.views_count ?? 0}
                   httnEarned={post.httn_earned}
                   createdAt={new Date(post.created_at)}
                   isLiked={post.is_liked}

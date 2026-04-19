@@ -5,6 +5,7 @@ import {
   MessageCircle,
   MessageCircleMore,
   Repeat2,
+  BarChart2,
   Share,
   Share2,
   MoreHorizontal,
@@ -53,6 +54,7 @@ interface TwitterStylePostProps {
   comments: number;
   reposts: number;
   bookmarks?: number;
+  views?: number;
   httnEarned: number;
   createdAt: Date;
   isLiked?: boolean;
@@ -91,6 +93,7 @@ export function TwitterStylePost({
   comments,
   reposts,
   bookmarks = 0,
+  views = 0,
   httnEarned,
   createdAt,
   isLiked: initialLiked = false,
@@ -295,6 +298,13 @@ export function TwitterStylePost({
               </div>
               <span className="text-sm">{likeCount > 0 ? likeCount : ''}</span>
             </button>
+
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <div className="p-2 rounded-full">
+                <BarChart2 className="w-4 h-4" />
+              </div>
+              <span className="text-sm">{views > 0 ? views : ''}</span>
+            </div>
 
             {onBookmark && (
               <button 

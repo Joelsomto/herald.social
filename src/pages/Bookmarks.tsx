@@ -228,6 +228,7 @@ export default function Bookmarks() {
               comments={post.comments_count}
               reposts={post.shares_count}
               bookmarks={post.bookmarks_count}
+              views={post.views_count ?? 0}
               httnEarned={post.httn_earned}
               createdAt={new Date(post.created_at)}
               isLiked={post.isLiked}

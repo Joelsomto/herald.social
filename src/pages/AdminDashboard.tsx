@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { MainLayout } from '@/components/herald/MainLayout';
-import { apiGet, apiPost } from '@/lib/apiClient';
+import { apiGet, apiPost, apiRequest } from '@/lib/apiClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +11,24 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  BarChart,
+  Bar,
+} from 'recharts';
 import {
   Shield,
   Users,
@@ -24,13 +42,20 @@ import {
   AlertCircle,
   RefreshCw,
   BadgeCheck,
+  MessageCircle,
+  Radio,
+  Eye,
 } from 'lucide-react';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface AdminRole {
   is_admin: boolean;
-  role: 'admin' | 'user';
+  is_super_admin: boolean;
+  role: 'super_admin' | 'admin' | 'moderator' | 'support' | 'analytics_viewer' | 'ads_manager' | 'user';
+  roles: string[];
+  permissions: string[];
+  source?: 'assignment' | 'django_superuser' | 'django_staff' | null;
 }
 
 interface AdminStats {
@@ -42,6 +67,40 @@ interface AdminStats {
   stats_collected_at: string;
 }
 
+interface AnalyticsPoint {
+  date: string;
+  users: number;
+  posts: number;
+  messages: number;
+  streams: number;
+}
+
+interface AnalyticsPost {
+  id: string;
+  content: string;
+  author_username?: string;
+  author_display_name?: string;
+  likes_count: number;
+  comments_count: number;
+  shares_count: number;
+  views_count: number;
+  total_engagement: number;
+  created_at: string;
+}
+
+interface AdminAnalytics {
+  window_days: number;
+  series: AnalyticsPoint[];
+  engagement_totals: {
+    likes: number;
+    comments: number;
+    shares: number;
+    views: number;
+  };
+  top_posts: AnalyticsPost[];
+  generated_at: string;
+}
+
 interface UserProfile {
   id: string;
   username: string;
@@ -49,6 +108,9 @@ interface UserProfile {
   avatar_url?: string | null;
   is_verified?: boolean;
   created_at: string;
+  admin_role?: AdminRole['role'];
+  is_admin?: boolean;
+  admin_permissions?: string[];
 }
 
 interface Post {
@@ -122,19 +184,48 @@ interface BanState {
   duration_days: number;
 }
 
+const ROLE_OPTIONS: Array<{ value: AdminRole['role']; label: string }> = [
+  { value: 'super_admin', label: 'Super Admin' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'moderator', label: 'Moderator' },
+  { value: 'support', label: 'Support' },
+  { value: 'analytics_viewer', label: 'Analytics Viewer' },
+  { value: 'ads_manager', label: 'Ads Manager' },
+  { value: 'user', label: 'No Admin Role' },
+];
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function AdminDashboard() {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const formatCompactNumber = useCallback((value: number) => {
+    return new Intl.NumberFormat('en', {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(value);
+  }, []);
+
+  const formatSeriesLabel = useCallback((value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }, []);
+
   // Access guard state
   const [checkingRole, setCheckingRole] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
+  const hasPermission = useCallback((permission: string) => {
+    return adminRole?.is_super_admin || adminRole?.permissions?.includes(permission) || false;
+  }, [adminRole]);
 
   // Stats
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // Users tab
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -145,6 +236,7 @@ export default function AdminDashboard() {
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [banState, setBanState] = useState<BanState | null>(null);
   const [banSubmitting, setBanSubmitting] = useState(false);
+  const [updatingRoleId, setUpdatingRoleId] = useState<string | null>(null);
 
   // Posts tab
   const [posts, setPosts] = useState<Post[]>([]);
@@ -156,6 +248,18 @@ export default function AdminDashboard() {
   // Debounce timers
   const usersDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const postsDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canViewAnalytics = hasPermission('analytics.view');
+  const canViewUsers = hasPermission('users.view');
+  const canVerifyUsers = hasPermission('users.verify');
+  const canBanUsers = hasPermission('users.ban');
+  const canViewPosts = hasPermission('posts.view');
+  const canManageRoles = hasPermission('roles.manage');
+  const availableTabs = [
+    canViewAnalytics ? 'analytics' : null,
+    canViewUsers ? 'users' : null,
+    canViewPosts ? 'posts' : null,
+  ].filter(Boolean) as Array<'analytics' | 'users' | 'posts'>;
+  const defaultTab = availableTabs[0] ?? 'analytics';
 
   // ── Check admin role on mount ──
   useEffect(() => {
@@ -163,8 +267,10 @@ export default function AdminDashboard() {
     const check = async () => {
       try {
         const data = await apiGet<AdminRole>('/admin/me/role/');
+        setAdminRole(data);
         setIsAdmin(data.is_admin);
       } catch {
+        setAdminRole(null);
         setIsAdmin(false);
       } finally {
         setCheckingRole(false);
@@ -183,6 +289,18 @@ export default function AdminDashboard() {
       toast({ title: 'Error', description: 'Failed to load stats', variant: 'destructive' });
     } finally {
       setStatsLoading(false);
+    }
+  }, [toast]);
+
+  const fetchAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const data = await apiGet<AdminAnalytics>('/admin/analytics/?days=14');
+      setAnalytics(data);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load analytics', variant: 'destructive' });
+    } finally {
+      setAnalyticsLoading(false);
     }
   }, [toast]);
 
@@ -221,13 +339,21 @@ export default function AdminDashboard() {
   // ── Initial data load after role confirmed ──
   useEffect(() => {
     if (!isAdmin) return;
-    fetchStats();
-    fetchUsers(1, '');
-    fetchPosts(1, '');
-  }, [isAdmin, fetchStats, fetchUsers, fetchPosts]);
+    if (canViewAnalytics) {
+      fetchStats();
+      fetchAnalytics();
+    }
+    if (canViewUsers) {
+      fetchUsers(1, '');
+    }
+    if (canViewPosts) {
+      fetchPosts(1, '');
+    }
+  }, [isAdmin, canViewAnalytics, canViewUsers, canViewPosts, fetchStats, fetchAnalytics, fetchUsers, fetchPosts]);
 
   // ── Debounced user search ──
   useEffect(() => {
+    if (!canViewUsers) return;
     if (usersDebounce.current) clearTimeout(usersDebounce.current);
     usersDebounce.current = setTimeout(() => {
       setUsersPage(1);
@@ -236,10 +362,11 @@ export default function AdminDashboard() {
     return () => {
       if (usersDebounce.current) clearTimeout(usersDebounce.current);
     };
-  }, [usersSearch, fetchUsers]);
+  }, [usersSearch, fetchUsers, canViewUsers]);
 
   // ── Debounced post search ──
   useEffect(() => {
+    if (!canViewPosts) return;
     if (postsDebounce.current) clearTimeout(postsDebounce.current);
     postsDebounce.current = setTimeout(() => {
       setPostsPage(1);
@@ -248,18 +375,18 @@ export default function AdminDashboard() {
     return () => {
       if (postsDebounce.current) clearTimeout(postsDebounce.current);
     };
-  }, [postsSearch, fetchPosts]);
+  }, [postsSearch, fetchPosts, canViewPosts]);
 
   // ── Page change effects ──
   useEffect(() => {
-    if (isAdmin) fetchUsers(usersPage, usersSearch);
+    if (isAdmin && canViewUsers) fetchUsers(usersPage, usersSearch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usersPage]);
+  }, [usersPage, isAdmin, canViewUsers]);
 
   useEffect(() => {
-    if (isAdmin) fetchPosts(postsPage, postsSearch);
+    if (isAdmin && canViewPosts) fetchPosts(postsPage, postsSearch);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [postsPage]);
+  }, [postsPage, isAdmin, canViewPosts]);
 
   // ── Actions ──
   const handleVerify = async (userId: string) => {
@@ -292,6 +419,31 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleRoleChange = async (userId: string, nextRole: AdminRole['role']) => {
+    setUpdatingRoleId(userId);
+    try {
+      if (nextRole === 'user') {
+        await apiRequest(`/admin/roles/${userId}/`, { method: 'DELETE' });
+      } else {
+        await apiPost('/admin/roles/', { body: { user_id: userId, role: nextRole } });
+      }
+      toast({ title: 'Role updated', description: 'Admin role saved successfully.' });
+      fetchUsers(usersPage, usersSearch);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to update admin role', variant: 'destructive' });
+    } finally {
+      setUpdatingRoleId(null);
+    }
+  };
+
+  const handleRefreshAll = async () => {
+    await Promise.all([
+      ...(canViewAnalytics ? [fetchStats(), fetchAnalytics()] : []),
+      ...(canViewUsers ? [fetchUsers(usersPage, usersSearch)] : []),
+      ...(canViewPosts ? [fetchPosts(postsPage, postsSearch)] : []),
+    ]);
+  };
+
   // ── Render states ──
   if (checkingRole) {
     return (
@@ -304,6 +456,7 @@ export default function AdminDashboard() {
   }
 
   if (!isAdmin) return <AccessDenied />;
+  if (!availableTabs.length) return <AccessDenied />;
 
   return (
     <MainLayout>
@@ -316,81 +469,140 @@ export default function AdminDashboard() {
               <h1 className="font-display font-bold text-xl text-foreground">Admin Dashboard</h1>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={fetchStats} disabled={statsLoading}>
-                <RefreshCw className={`w-4 h-4 ${statsLoading ? 'animate-spin' : ''}`} />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRefreshAll}
+                disabled={statsLoading || analyticsLoading || usersLoading || postsLoading}
+              >
+                <RefreshCw
+                  className={`w-4 h-4 ${
+                    statsLoading || analyticsLoading || usersLoading || postsLoading
+                      ? 'animate-spin'
+                      : ''
+                  }`}
+                />
               </Button>
-              <Badge variant="outline" className="text-primary border-primary">Admin</Badge>
+              <Badge variant="outline" className="text-primary border-primary">
+                {ROLE_OPTIONS.find((item) => item.value === adminRole?.role)?.label ?? 'Admin'}
+              </Badge>
             </div>
           </div>
         </header>
 
         <div className="p-4 space-y-6">
           {/* Stats Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {statsLoading || !stats ? (
-              <>
-                <StatCardSkeleton />
-                <StatCardSkeleton />
-                <StatCardSkeleton />
-                <StatCardSkeleton />
-              </>
-            ) : (
-              <>
-                <Card className="bg-card border-border">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Users</p>
-                        <p className="text-2xl font-display font-bold text-foreground mt-1">
-                          {stats.total_users.toLocaleString()}
-                        </p>
+          {canViewAnalytics && (
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {statsLoading || !stats ? (
+                <>
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                  <StatCardSkeleton />
+                </>
+              ) : (
+                <>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Users</p>
+                          <p className="text-2xl font-display font-bold text-foreground mt-1">
+                            {stats.total_users.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                          <Users className="w-6 h-6 text-primary" />
+                        </div>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Users className="w-6 h-6 text-primary" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                <Card className="bg-card border-border">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Total Posts</p>
-                        <p className="text-2xl font-display font-bold text-foreground mt-1">
-                          {stats.total_posts.toLocaleString()}
-                        </p>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total Posts</p>
+                          <p className="text-2xl font-display font-bold text-foreground mt-1">
+                            {stats.total_posts.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                          <FileText className="w-6 h-6 text-primary" />
+                        </div>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-primary" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
-                <Card className="bg-card border-border">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm text-muted-foreground">Active Today</p>
-                        <p className="text-2xl font-display font-bold text-foreground mt-1">
-                          {stats.active_users_today.toLocaleString()}
-                        </p>
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Active Today</p>
+                          <p className="text-2xl font-display font-bold text-foreground mt-1">
+                            {stats.active_users_today.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                          <TrendingUp className="w-6 h-6 text-primary" />
+                        </div>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                        <TrendingUp className="w-6 h-6 text-primary" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
+                  <Card className="bg-card border-border">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Total HTTN Points</p>
+                          <p className="text-2xl font-display font-bold text-foreground mt-1">
+                            {stats.total_httn_points.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                          <BadgeCheck className="w-6 h-6 text-primary" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Tabs */}
+          <Tabs defaultValue={defaultTab} className="space-y-4">
+            <TabsList className="bg-secondary">
+              {canViewAnalytics && (
+                <TabsTrigger value="analytics" className="flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" /> Analytics
+                </TabsTrigger>
+              )}
+              {canViewUsers && (
+                <TabsTrigger value="users" className="flex items-center gap-2">
+                  <Users className="w-4 h-4" /> Users
+                </TabsTrigger>
+              )}
+              {canViewPosts && (
+                <TabsTrigger value="posts" className="flex items-center gap-2">
+                  <FileText className="w-4 h-4" /> Posts
+                </TabsTrigger>
+              )}
+            </TabsList>
+
+            {canViewAnalytics && (
+            <TabsContent value="analytics" className="space-y-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="bg-card border-border">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm text-muted-foreground">Total HTTN Points</p>
+                        <p className="text-sm text-muted-foreground">Total Likes</p>
                         <p className="text-2xl font-display font-bold text-foreground mt-1">
-                          {stats.total_httn_points.toLocaleString()}
+                          {analyticsLoading || !analytics
+                            ? '...'
+                            : formatCompactNumber(analytics.engagement_totals.likes)}
                         </p>
                       </div>
                       <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -399,22 +611,220 @@ export default function AdminDashboard() {
                     </div>
                   </CardContent>
                 </Card>
-              </>
-            )}
-          </div>
 
-          {/* Tabs */}
-          <Tabs defaultValue="users" className="space-y-4">
-            <TabsList className="bg-secondary">
-              <TabsTrigger value="users" className="flex items-center gap-2">
-                <Users className="w-4 h-4" /> Users
-              </TabsTrigger>
-              <TabsTrigger value="posts" className="flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Posts
-              </TabsTrigger>
-            </TabsList>
+                <Card className="bg-card border-border">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Comments</p>
+                        <p className="text-2xl font-display font-bold text-foreground mt-1">
+                          {analyticsLoading || !analytics
+                            ? '...'
+                            : formatCompactNumber(analytics.engagement_totals.comments)}
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                        <MessageCircle className="w-6 h-6 text-primary" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-card border-border">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Streams Created</p>
+                        <p className="text-2xl font-display font-bold text-foreground mt-1">
+                          {analyticsLoading || !analytics
+                            ? '...'
+                            : formatCompactNumber(
+                                analytics.series.reduce((sum, point) => sum + point.streams, 0)
+                              )}
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Radio className="w-6 h-6 text-primary" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-card border-border">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Post Views</p>
+                        <p className="text-2xl font-display font-bold text-foreground mt-1">
+                          {analyticsLoading || !analytics
+                            ? '...'
+                            : formatCompactNumber(analytics.engagement_totals.views)}
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Eye className="w-6 h-6 text-primary" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="text-base">Growth Overview</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[320px]">
+                    {analyticsLoading || !analytics ? (
+                      <div className="h-full flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={analytics.series}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis
+                            dataKey="date"
+                            tickFormatter={formatSeriesLabel}
+                            stroke="hsl(var(--muted-foreground))"
+                          />
+                          <YAxis stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                          <RechartsTooltip
+                            labelFormatter={formatSeriesLabel}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              borderColor: 'hsl(var(--border))',
+                              borderRadius: '12px',
+                            }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="users"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth={2}
+                            dot={false}
+                            name="New users"
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="posts"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            dot={false}
+                            name="Posts"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-card border-border">
+                  <CardHeader>
+                    <CardTitle className="text-base">Conversation Activity</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-[320px]">
+                    {analyticsLoading || !analytics ? (
+                      <div className="h-full flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.series}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis
+                            dataKey="date"
+                            tickFormatter={formatSeriesLabel}
+                            stroke="hsl(var(--muted-foreground))"
+                          />
+                          <YAxis stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                          <RechartsTooltip
+                            labelFormatter={formatSeriesLabel}
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              borderColor: 'hsl(var(--border))',
+                              borderRadius: '12px',
+                            }}
+                          />
+                          <Bar
+                            dataKey="messages"
+                            fill="#f59e0b"
+                            radius={[8, 8, 0, 0]}
+                            name="Messages"
+                          />
+                          <Bar
+                            dataKey="streams"
+                            fill="#8b5cf6"
+                            radius={[8, 8, 0, 0]}
+                            name="Streams"
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="bg-card border-border">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <CardTitle className="text-base">Top Posts</CardTitle>
+                  {analytics?.generated_at ? (
+                    <p className="text-xs text-muted-foreground">
+                      Updated {new Date(analytics.generated_at).toLocaleString()}
+                    </p>
+                  ) : null}
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {analyticsLoading || !analytics ? (
+                    Array.from({ length: 4 }).map((_, index) => (
+                      <div key={index} className="space-y-2">
+                        <Skeleton className="h-4 w-28" />
+                        <Skeleton className="h-3 w-full" />
+                        <Skeleton className="h-3 w-40" />
+                      </div>
+                    ))
+                  ) : analytics.top_posts.length === 0 ? (
+                    <div className="py-8 text-center">
+                      <AlertCircle className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground">
+                        No post activity yet for this window.
+                      </p>
+                    </div>
+                  ) : (
+                    analytics.top_posts.map((post) => (
+                      <div key={post.id} className="rounded-xl border border-border p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">
+                              {post.author_display_name || post.author_username || 'Unknown user'}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              @{post.author_username || 'unknown'}
+                            </p>
+                          </div>
+                          <Badge variant="outline">
+                            {formatCompactNumber(post.total_engagement)} engagement
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {post.content?.trim() ? post.content : 'No post text'}
+                        </p>
+                        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                          <span>{post.likes_count} likes</span>
+                          <span>{post.comments_count} comments</span>
+                          <span>{post.shares_count} shares</span>
+                          <span>{post.views_count} views</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+            )}
 
             {/* ── Users Tab ── */}
+            {canViewUsers && (
             <TabsContent value="users" className="space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -451,6 +861,7 @@ export default function AdminDashboard() {
                         <thead className="border-b border-border">
                           <tr className="text-left text-sm text-muted-foreground">
                             <th className="p-4 font-medium">User</th>
+                            <th className="p-4 font-medium hidden lg:table-cell">Role</th>
                             <th className="p-4 font-medium hidden sm:table-cell">Verified</th>
                             <th className="p-4 font-medium hidden md:table-cell">Joined</th>
                             <th className="p-4 font-medium">Actions</th>
@@ -458,8 +869,8 @@ export default function AdminDashboard() {
                         </thead>
                         <tbody className="divide-y divide-border">
                           {users.map((u) => (
-                            <>
-                              <tr key={u.id} className="hover:bg-secondary/30">
+                            <Fragment key={u.id}>
+                              <tr className="hover:bg-secondary/30">
                                 <td className="p-4">
                                   <div className="flex items-center gap-3">
                                     <Avatar className="w-9 h-9">
@@ -476,6 +887,30 @@ export default function AdminDashboard() {
                                     </div>
                                   </div>
                                 </td>
+                                <td className="p-4 hidden lg:table-cell">
+                                  {canManageRoles ? (
+                                    <Select
+                                      value={u.admin_role ?? 'user'}
+                                      onValueChange={(value) => handleRoleChange(u.id, value as AdminRole['role'])}
+                                      disabled={updatingRoleId === u.id}
+                                    >
+                                      <SelectTrigger className="w-[180px] h-9">
+                                        <SelectValue placeholder="Select role" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {ROLE_OPTIONS.map((roleOption) => (
+                                          <SelectItem key={roleOption.value} value={roleOption.value}>
+                                            {roleOption.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  ) : (
+                                    <Badge variant="outline" className="text-xs">
+                                      {ROLE_OPTIONS.find((item) => item.value === (u.admin_role ?? 'user'))?.label ?? 'User'}
+                                    </Badge>
+                                  )}
+                                </td>
                                 <td className="p-4 hidden sm:table-cell">
                                   {u.is_verified ? (
                                     <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-xs">
@@ -490,7 +925,7 @@ export default function AdminDashboard() {
                                 </td>
                                 <td className="p-4">
                                   <div className="flex items-center gap-1">
-                                    {!u.is_verified && (
+                                    {!u.is_verified && canVerifyUsers && (
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -506,28 +941,30 @@ export default function AdminDashboard() {
                                         )}
                                       </Button>
                                     )}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-destructive hover:text-destructive h-8 px-2"
-                                      onClick={() =>
-                                        setBanState({
-                                          userId: u.id,
-                                          reason: '',
-                                          duration_days: 30,
-                                        })
-                                      }
-                                      title="Ban user"
-                                    >
-                                      <Ban className="w-4 h-4" />
-                                    </Button>
+                                    {canBanUsers && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-destructive hover:text-destructive h-8 px-2"
+                                        onClick={() =>
+                                          setBanState({
+                                            userId: u.id,
+                                            reason: '',
+                                            duration_days: 30,
+                                          })
+                                        }
+                                        title="Ban user"
+                                      >
+                                        <Ban className="w-4 h-4" />
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
                               {/* Inline ban confirm row */}
                               {banState?.userId === u.id && (
-                                <tr key={`ban-${u.id}`} className="bg-destructive/5">
-                                  <td colSpan={4} className="p-4">
+                                <tr className="bg-destructive/5">
+                                  <td colSpan={5} className="p-4">
                                     <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
                                       <Input
                                         placeholder="Reason for ban"
@@ -582,7 +1019,7 @@ export default function AdminDashboard() {
                                   </td>
                                 </tr>
                               )}
-                            </>
+                            </Fragment>
                           ))}
                         </tbody>
                       </table>
@@ -618,8 +1055,10 @@ export default function AdminDashboard() {
                 </div>
               )}
             </TabsContent>
+            )}
 
             {/* ── Posts Tab ── */}
+            {canViewPosts && (
             <TabsContent value="posts" className="space-y-4">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -708,6 +1147,7 @@ export default function AdminDashboard() {
                 </div>
               )}
             </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>

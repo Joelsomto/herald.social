@@ -48,7 +48,10 @@ import {
 
 interface AdminRole {
   is_admin: boolean;
-  role: 'admin' | 'user';
+  is_super_admin: boolean;
+  role: 'super_admin' | 'admin' | 'moderator' | 'support' | 'analytics_viewer' | 'ads_manager' | 'user';
+  roles: string[];
+  permissions: string[];
 }
 
 type AdFormData = {
@@ -366,6 +369,7 @@ export default function AdsManagement() {
   // Access guard
   const [checkingRole, setCheckingRole] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(null);
 
   // Ads state
   const [ads, setAds] = useState<Ad[]>([]);
@@ -381,14 +385,16 @@ export default function AdsManagement() {
   // ── Check admin role ──
   useEffect(() => {
     if (!user) return;
-    const check = async () => {
-      try {
-        const data = await apiGet<AdminRole>('/admin/me/role/');
-        setIsAdmin(data.is_admin);
-      } catch {
-        setIsAdmin(false);
-      } finally {
-        setCheckingRole(false);
+      const check = async () => {
+        try {
+          const data = await apiGet<AdminRole>('/admin/me/role/');
+          setAdminRole(data);
+          setIsAdmin(data.is_admin);
+        } catch {
+          setAdminRole(null);
+          setIsAdmin(false);
+        } finally {
+          setCheckingRole(false);
       }
     };
     check();
@@ -439,7 +445,8 @@ export default function AdsManagement() {
     );
   }
 
-  if (!isAdmin) return <AccessDenied />;
+  const canManageAds = adminRole?.is_super_admin || adminRole?.permissions?.includes('ads.manage');
+  if (!isAdmin || !canManageAds) return <AccessDenied />;
 
   return (
     <MainLayout>

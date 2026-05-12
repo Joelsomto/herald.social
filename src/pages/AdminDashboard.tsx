@@ -196,7 +196,12 @@ const ROLE_OPTIONS: Array<{ value: AdminRole['role']; label: string }> = [
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function AdminDashboard() {
+interface AdminDashboardProps {
+  initialTab?: 'analytics' | 'users' | 'posts';
+  title?: string;
+}
+
+export default function AdminDashboard({ initialTab, title = 'Admin Dashboard' }: AdminDashboardProps = {}) {
   const { user } = useAuth();
   const { toast } = useToast();
 
@@ -259,7 +264,8 @@ export default function AdminDashboard() {
     canViewUsers ? 'users' : null,
     canViewPosts ? 'posts' : null,
   ].filter(Boolean) as Array<'analytics' | 'users' | 'posts'>;
-  const defaultTab = availableTabs[0] ?? 'analytics';
+  const defaultTab =
+    (initialTab && availableTabs.includes(initialTab) ? initialTab : availableTabs[0]) ?? 'analytics';
 
   // ── Check admin role on mount ──
   useEffect(() => {
@@ -466,7 +472,7 @@ export default function AdminDashboard() {
           <div className="px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Shield className="w-6 h-6 text-primary" />
-              <h1 className="font-display font-bold text-xl text-foreground">Admin Dashboard</h1>
+              <h1 className="font-display font-bold text-xl text-foreground">{title}</h1>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -486,6 +492,11 @@ export default function AdminDashboard() {
               <Badge variant="outline" className="text-primary border-primary">
                 {ROLE_OPTIONS.find((item) => item.value === adminRole?.role)?.label ?? 'Admin'}
               </Badge>
+              {canManageRoles && (
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/admin/roles">Manage roles</Link>
+                </Button>
+              )}
             </div>
           </div>
         </header>

@@ -23,6 +23,7 @@ import Notifications from "./pages/Notifications";
 import Ads from "./pages/Ads";
 import Admin from "./pages/Admin";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminRoles from "./pages/AdminRoles";
 import AdsManagement from "./pages/AdsManagement";
 import UserProfile from "./pages/UserProfile";
 import EStore from "./pages/EStore";
@@ -195,6 +196,7 @@ const AppRoutes = () => {
       <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       <Route path="/ads" element={<ProtectedRoute><Ads /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+      <Route path="/admin/roles" element={<ProtectedRoute><AdminRoles /></ProtectedRoute>} />
       <Route path="/admin/ads" element={<ProtectedRoute><AdsManagement /></ProtectedRoute>} />
       <Route path="/admin/legacy" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
       <Route path="/user/:username" element={<ProtectedRoute><UserProfile /></ProtectedRoute>} />
